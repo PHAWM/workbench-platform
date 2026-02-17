@@ -1,0 +1,129 @@
+services:
+  app:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    networks:
+      - platform-network
+
+  api:
+    build:
+      context: ../backend
+      dockerfile: ../deploy/Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - ../backend:/app
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_DB=${POSTGRES_DB}
+    networks:
+      - platform-network
+
+  # Model Services (internal network only - no exposed ports)
+  sam-api:
+    build:
+      context: ../backend
+      dockerfile: src/services/model_service/api/SAM/Dockerfile
+    container_name: sam-attachment-monitor
+    volumes:
+      - ../backend/storage:/app/storage
+    environment:
+      - PYTHONPATH=/app
+    restart: unless-stopped
+    networks:
+      - platform-network
+
+  universal-llm-api:
+    build:
+      context: ../backend
+      dockerfile: src/services/model_service/api/Universal/Dockerfile
+    container_name: universal-llm-inference
+    environment:
+      - PYTHONPATH=/app
+    restart: unless-stopped
+    networks:
+      - platform-network
+
+  annif-api:
+    build:
+      context: ../backend
+      dockerfile: src/services/model_service/api/ANNIF/Dockerfile
+    container_name: annif-subject-indexing
+    environment:
+      - PYTHONPATH=/app
+    restart: unless-stopped
+    networks:
+      - platform-network
+
+  postgres:
+    image: postgres:15
+    container_name: postgres-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_HOST_AUTH_METHOD=trust
+    ports:
+      - 5432:5432
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      retries: 5
+      start_period: 30s
+      timeout: 10s
+    networks:
+      - platform-network
+
+  prestart:
+    image: python:3.12-slim
+    container_name: prestart
+    volumes:
+      - ../backend:/app
+    working_dir: /app
+    depends_on:
+      postgres:
+        condition: service_healthy
+        restart: true
+    command:
+        - bash
+        - -c
+        - |
+         pip install -r requirements.txt &&
+         bash scripts/prestart.sh
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_DB=${POSTGRES_DB}
+    networks:
+      - platform-network
+
+  docs:
+    image: squidfunk/mkdocs-material:9
+    volumes:
+      - ../docs:/docs
+    ports:
+      - "8001:8000"
+    working_dir: /docs
+    command: serve -a 0.0.0.0:8000
+    networks:
+      - platform-network
+
+volumes:
+  sam-storage:
+    driver: local
+
+networks:
+  platform-network:
+    name: platform-network

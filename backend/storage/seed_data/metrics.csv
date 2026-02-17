@@ -1,0 +1,6 @@
+metric_name,metric_description,reason
+Accuracy,The proportion of correct over the total number of predictions.,Because it is an established performance metric
+Recall,The proportion of individuals with Insecure Attachment that SAM correctly predicted as Insecure.,Because it is an established performance metric
+Accuracy Parity,The difference in the Accuracy between groups.,Because it is an established fairness metric
+ANNIF Accuracy,The proportion of correct keywords over the total number of predictions.,Because it is an established performance metric
+Keyword Salience,How valuable are the subject keywords suggested to the topic catalogue or collection,Because it is an established fairness metric

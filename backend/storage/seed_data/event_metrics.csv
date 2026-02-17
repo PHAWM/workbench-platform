@@ -1,0 +1,8 @@
+audit_name,event_name,metric_name,threshold
+SAM Audit,Prediction Correctness,Accuracy,70
+SAM Audit,Prediction Correctness,Recall,60
+SAM Audit,Gender Fairness,Accuracy Parity,5
+Test Audit - Annif Text Classification,Subject Correctness,ANNIF Accuracy,80
+Test Audit - Annif Text Classification,Value of subject keywords,Keyword Salience,Of Worth
+Annif Audit,Subject Correctness,ANNIF Accuracy,80
+Annif Audit,Value of subject keywords,Keyword Salience,Of Worth

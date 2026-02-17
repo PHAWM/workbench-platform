@@ -1,0 +1,4 @@
+name,location,input_type
+SAM Dataset,storage/audits/audit_1,wav
+Annif Test Dataset,storage/audits/audit_2,txt
+Annif Production Dataset,storage/audits/audit_3,txt

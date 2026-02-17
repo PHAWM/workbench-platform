@@ -1,0 +1,4 @@
+id,file_name,expected_subjects,notes
+1,example_1.txt,"Historiography; Politics and government; Iran -- History -- 20th century -- Historiography; Iran -- History -- 20th century; Iran -- Politics and government -- 20th century; Iran",Iran 20th century history book
+2,example_2.txt,Library; Smithsonian; Historical documents,Notice repeated use of 'library' in description affects ranking
+3,example_3.txt,"Poetry; Literature; Animals; Dogs",Project Gutenberg poem about a pug

@@ -1,0 +1,38 @@
+site_name: PHAWM Documentation
+dev_addr: "127.0.0.1:8080"
+theme:
+  name: material
+  font:
+    text: Lato
+  features:
+    - navigation.tabs
+    - navigation.path
+    - toc.integrate
+    - navigation.top
+nav:
+  - Overview:
+    - index.md
+  - Application:
+    - frontend/index.md
+    - frontend/dashboard/dashboard.md
+    - frontend/ai_application/ai_application_overview.md
+    - Audit Criteria:
+      - frontend/audit_criteria/audit_criteria.md
+      - frontend/audit_criteria/create_new_event.md
+      - frontend/audit_criteria/create_new_metric_qual.md
+      - frontend/audit_criteria/create_new_metric_quant.md
+    - Performance Analysis:
+      - frontend/performance_analysis/performance_analysis_overview.md
+      - frontend/performance_analysis/performance_analysis.md
+      - frontend/performance_analysis/output_evaluation.md
+    - frontend/audit_recommedation/audit_recommendation.md
+  - Backend:
+    - backend/index.md
+    - backend/configuration.md
+    - backend/application.md
+    - backend/authentication.md
+    - backend/evaluation.md
+    - backend/events.md
+    - backend/metrics.md
+    - backend/model_service.md
+    - backend/storage.md

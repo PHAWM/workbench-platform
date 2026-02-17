@@ -1,0 +1,5 @@
+event_name,event_description,cause,reason,likelihood,magnitude,valence
+Prediction Correctness,How well does SAM predict secure or insecure attachment.,Lack of diversity in data. Lack of balance in the dataset. Poor modelling.,Because incorrect results could have a negative impact on children and their families and also cause misplacement of resources.,0.0,0.0,0.0
+Gender Fairness,Does SAM perform equally well for boys and girls?,Lack of diversity in data. Lack of balance in the dataset. Poor modelling.,Because gender biased predictions can exacerbate gender stereotypes of attachment styles.,0.5,0.75,-1.0
+Subject Correctness,How well does Annif predict appropriate subject keywords.,Lack of diversity in data. Lack of balance in the dataset. Poor modelling.,Because incorrect results could have a negative impact on findability cataloguing searchability and on information accessibility.,0.0,0.0,0.0
+Value of subject keywords,The value or perceived worth of the subject keywords raised.,Lack of diversity in vocabulary. Lack of balance in the dataset. Poor modelling.,Because biased subject keywords can exacerbate outdated or incorrect knowledge structures.,0.0,0.0,0.0

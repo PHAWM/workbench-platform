@@ -1,0 +1,45 @@
+target_feature,function_name
+Accuracy,accuracy
+Confusion Matrix,confusion_matrix
+Confusion Matrix Analysis,confusion_matrix_analysis
+Demographic Parity,demographic_parity
+Equalised Odds,equalized_odds
+Equal Opportunity,equal_opportunity
+Statistical Parity,statistical_parity
+Disparate Impact,disparate_impact
+Calibration,calibration
+Precision,precision
+Recall,recall
+F1 Score,f1_score
+F-Beta Score,fbeta
+ROC AUC,roc_auc
+PR AUC,pr_auc
+Average Precision,average_precision
+Balanced Accuracy,balanced_accuracy
+Matthews Correlation Coefficient,mcc
+Cohens Kappa,cohen_kappa
+Log Loss,log_loss
+Brier Score,brier_score
+Hamming Loss,hamming_loss
+Jaccard Score,jaccard
+Specificity,specificity
+Classification Report,classification_report
+Mean Squared Error,mse
+Root Mean Squared Error,rmse
+Mean Absolute Error,mae
+Mean Absolute Percentage Error,mape
+R-Squared,r2
+Explained Variance,explained_variance
+Max Error,max_error
+Median Absolute Error,median_absolute_error
+Normalised Discounted Cumulative Gain,ndcg
+Top-K Accuracy,top_k_accuracy
+Expected Calibration Error,expected_calibration_error
+BLEU Score,bleu
+ROUGE Score,rouge
+Perplexity,perplexity
+Keyword Accuracy,keyword_accuracy
+Batch Keyword Accuracy,batch_keyword_accuracy
+Performance Summary,performance_summary
+Classification Summary,classification_summary
+Regression Summary,regression_summary

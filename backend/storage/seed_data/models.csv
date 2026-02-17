@@ -1,0 +1,3 @@
+name,model_type,location,acceptable_formats,output_context,task
+SAM,0,http://sam-api:8002,"wav,mp3",Prediction.,Classifies Secure and Insecure attachments.
+Annif,0,http://annif-api:8004,"txt,html",Theme ranking of content,Text Analysis
