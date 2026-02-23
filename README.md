@@ -9,7 +9,7 @@ workbench-platform/
 ├── backend/     # FastAPI backend server
 ├── frontend/    # React web application
 ├── deploy/      # Docker deployment configuration
-└── docs/        # MkDocs documentation
+└── docs/        # Documentation
 ```
 
 ## Folder Summaries
