@@ -1,5 +1,8 @@
 # PHAWM Workbench Platform
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23880458.svg)](https://doi.org/10.5281/zenodo.23880458)
+
+
 A workbench for performing event assessments when AI systems are deployed. Part of the Participatory Harm Auditing Workbenches and Methodologies (PHAWM) project.
 
 ## Project Structure
