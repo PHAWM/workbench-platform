@@ -1,5 +1,9 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL;
 
+// Tenant ID is a build-time constant — set via VITE_TENANT_ID env var.
+// Each tenant gets its own deployment under /workbench/<tenantId>/.
+const _resolveTenantId = () => import.meta.env.VITE_TENANT_ID || null;
+
 // Token storage helper functions
 const TokenStorage = {
   setToken: (token) => {
@@ -36,7 +40,20 @@ const TokenStorage = {
   isTokenExpired: () => {
     const expiry = sessionStorage.getItem('authTokenExpiry');
     return expiry ? Date.now() >= parseInt(expiry) : true;
-  }
+  },
+
+  // Tenant ID — stored only for the duration of the session.
+  // After login the JWT embeds the tenant (tid claim) so this is only
+  // needed to send X-Tenant-ID on the login request itself.
+  setTenantId: (tenantId) => {
+    if (tenantId) {
+      sessionStorage.setItem('tenantId', tenantId);
+    }
+  },
+
+  getTenantId: () => sessionStorage.getItem('tenantId'),
+
+  clearTenantId: () => sessionStorage.removeItem('tenantId'),
 };
 
 // Generic API request handler
@@ -47,9 +64,17 @@ const apiRequest = async (endpoint, options = {}) => {
   // Build headers
   const headers = {};
 
-  // Always add Authorization if token exists
   if (token) {
+    // Authenticated request — Bearer token carries the tid claim so the
+    // backend resolves the tenant schema automatically.
     headers['Authorization'] = `Bearer ${token}`;
+  } else {
+    // Unauthenticated request (invite, verify-email, forgot/reset-password).
+    // The backend needs X-Tenant-ID to know which schema to query.
+    const tenantId = _resolveTenantId();
+    if (tenantId) {
+      headers['X-Tenant-ID'] = tenantId;
+    }
   }
 
   // Add Content-Type for JSON requests (unless it's a file upload)
@@ -93,7 +118,7 @@ const apiRequest = async (endpoint, options = {}) => {
         TokenStorage.clearToken();
 
         // Redirect to 403 error page
-        window.location.href = '/403';
+        window.location.href = (import.meta.env.BASE_URL || '/') + '403';
         throw new Error('Access forbidden. Redirecting to login...');
       }
 
@@ -103,7 +128,7 @@ const apiRequest = async (endpoint, options = {}) => {
         TokenStorage.clearToken();
 
         // Redirect to login page
-        window.location.href = '/login';
+        window.location.href = (import.meta.env.BASE_URL || '/') + 'login';
         throw new Error('Unauthorized. Please log in again.');
       }
 
@@ -214,7 +239,7 @@ export const eventsAPI = {
   }),
 
   // Get Distinguishing Factors (returns both user-created and dataset features)
-  getUnderlyingFeatures: (auditId) => apiRequest(`/events/features/user/${auditId}`),
+  getUnderlyingFeatures: (auditId) => apiRequest(`/events/features/underlying/${auditId}`),
 
   // Get Targets (same endpoint returns target_features)
   getTargetFeatures: (auditId) => apiRequest(`/events/features/target`),
@@ -223,7 +248,7 @@ export const eventsAPI = {
   getFeatures: (auditId) => apiRequest(`/events/features/${auditId}`),
 
   // Create user-defined underlying feature
-  createUserFeature: (featureName, auditId) => apiRequest(`/events/features/user/`, {
+  createUserFeature: (featureName, auditId) => apiRequest(`/events/features/user`, {
     method: 'POST',
     body: JSON.stringify({
       feature_name: featureName,
@@ -235,7 +260,7 @@ export const eventsAPI = {
   createUserTargetFeature: (featureName, auditId) => apiRequest(`/events/features/user/target`, {
     method: 'POST',
     body: JSON.stringify({
-      name: featureName,
+      target_feature: featureName,
       audit_id: parseInt(auditId)
     }),
   }),
@@ -410,10 +435,23 @@ export const associationAPI = {
     }),
 };
 
+// In-flight request dedupe for the evaluation summary: the Performance Analysis page
+// mounts two effects that both request the same summary. Sharing one promise while a
+// request is pending collapses those into a single network call. Cleared when settled.
+const _evaluationSummaryInFlight = new Map();
+
 export const performanceAPI = {
   // Get the summary of evaluations for an audit -this one for the performance analysis.
-  getEvaluationSummary: (auditId) =>
-    apiRequest(`/evaluation/results/${auditId}/summary`),
+  getEvaluationSummary: (auditId) => {
+    const key = String(auditId);
+    if (_evaluationSummaryInFlight.has(key)) {
+      return _evaluationSummaryInFlight.get(key);
+    }
+    const promise = apiRequest(`/evaluation/results/${auditId}/summary`)
+      .finally(() => _evaluationSummaryInFlight.delete(key));
+    _evaluationSummaryInFlight.set(key, promise);
+    return promise;
+  },
 
   // Get outcome evaluation results (output evaluation)
   getOutcomeEvaluationResults: (auditId) =>
@@ -491,7 +529,7 @@ export const authAPI = {
     return fetch(`${API_BASE_URL}/login/access-token`, {
       method: 'POST',
       headers: {
-        // Don't set Content-Type, let browser set it for FormData
+        // Don't set Content-Type, let browser set it for the FormData
       },
       body: formData,
     }).then(response => response.json());
@@ -509,10 +547,12 @@ export const authAPI = {
 
   // Password recovery - does not require authentication
   passwordRecovery: (email) => {
-    return fetch(`${API_BASE_URL}/users/forgot-password/`, {
+    const tenantId = _resolveTenantId();
+    return fetch(`${API_BASE_URL}/users/forgot-password`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-tenant-id' : tenantId,
       },
       body: JSON.stringify({ "email": email }),
     }).then(response => {
@@ -525,10 +565,12 @@ export const authAPI = {
 
   // Reset password - does not require authentication
   resetPassword: (resetData) => {
-    return fetch(`${API_BASE_URL}/users/reset-password/`, {
+    const tenantId = _resolveTenantId();
+    return fetch(`${API_BASE_URL}/users/reset-password`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-tenant-id' : tenantId,
       },
       body: JSON.stringify(resetData),
     }).then(response => {
@@ -616,11 +658,26 @@ export const uploadAPI = {
   listUploadedDatasets: (auditId) => apiRequest(`/upload/dataset/${auditId}`),
 
   // Delete uploaded dataset
-  deleteUploadedDataset: (auditId, data) => {apiRequest(`/upload/dataset/${auditId}`, {
-      method: 'DELETE',
-      body: JSON.stringify(data),
-    })
+  deleteUploadedDataset: (auditId, data) => apiRequest(`/upload/dataset/${auditId}`, {
+    method: 'DELETE',
+    body: JSON.stringify(data),
+  }),
+
+  // Upload audit input files (supports single or multiple files including metadata.csv)
+  uploadAuditInput: (auditId, files) => {
+    const formData = new FormData();
+    const fileList = files instanceof FileList ? Array.from(files) : (Array.isArray(files) ? files : [files]);
+    fileList.forEach(file => formData.append('files', file));
+
+    return apiRequest(`/upload/audit/${auditId}/input`, {
+      method: 'POST',
+      isFileUpload: true,
+      body: formData,
+    });
   },
+
+  // List all audit input files
+  listAuditFiles: (auditId) => apiRequest(`/upload/audit/${auditId}/files`),
 
   // View/Download uploaded file
   viewFile: (auditId, filename) => {
@@ -633,6 +690,308 @@ export const uploadAPI = {
       },
     });
   },
+};
+
+// Admin Panel API - For audit instigators to set up audits
+export const adminAPI = {
+  // Step 1: Create Application
+  createApplication: (data) => apiRequest('/audits/applications/', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  // Step 2: Create Model Metadata
+  createModelMetadata: (data) => apiRequest('/pipeline/model-metadata/', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  // Step 2 (Option B): Scaffold a new MCP model service
+  scaffoldModel: (data) => apiRequest('/pipeline/model/scaffold/', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  // Step 3: Create API Key for Model
+  createApiKey: (data) => apiRequest('/pipeline/api-keys/', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  // Step 4: Create Dataset Metadata
+  createDatasetMetadata: (data) => apiRequest('/pipeline/dataset/metadata/', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  // Step 5: Create Audit
+  createAudit: (data) => apiRequest('/audits/', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  // Step 6: Create Event
+  createEvent: (data) => apiRequest('/events/comprehensive', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  // Step 7: Create Metrics
+  createQuantitativeMetric: (data) => apiRequest('/metrics/quantitative/create', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  createQualitativeMetric: (data) => apiRequest('/metrics/qualitative/create', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  // Step 8: Map Events to Pipeline
+  batchCreatePipelineMappings: (data) => apiRequest('/events/audit-pipeline-mapping/batch', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  // Step 9: Invite Auditor by email (backend handles lookup + role assignment + invitation email)
+  inviteAuditor: (auditId, email) => apiRequest(`/audits/${auditId}/invite`, {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  }),
+
+  // Aggregated auditor results for an audit (per-auditor criteria + recommendations)
+  getAuditResults: (auditId) => apiRequest(`/admin/audit-results/${auditId}`),
+
+  // Audit timing
+  recordSessionChunk: (auditId, durationSeconds) => apiRequest(`/audits/${auditId}/session`, {
+    method: 'POST',
+    body: JSON.stringify({ duration_seconds: durationSeconds }),
+  }),
+  submitAuditTiming: (auditId) => apiRequest(`/audits/${auditId}/submit`, { method: 'POST' }),
+  getAuditTiming: (auditId) => apiRequest(`/audits/${auditId}/timing`),
+
+  // Tenant-wide underlying features catalogue
+  listTenantUnderlyingFeatures: () => apiRequest('/admin/underlying-features/'),
+  createTenantUnderlyingFeature: (featureName) => apiRequest('/admin/underlying-features/', {
+    method: 'POST',
+    body: JSON.stringify({ feature_name: featureName }),
+  }),
+  updateTenantUnderlyingFeature: (id, featureName) => apiRequest(`/admin/underlying-features/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ feature_name: featureName }),
+  }),
+  deleteTenantUnderlyingFeature: (id) => apiRequest(`/admin/underlying-features/${id}`, { method: 'DELETE' }),
+
+  // Tenant-wide target features catalogue
+  listTenantTargetFeatures: () => apiRequest('/admin/target-features/'),
+  createTenantTargetFeature: (targetFeature, functionName) => apiRequest('/admin/target-features/', {
+    method: 'POST',
+    body: JSON.stringify(functionName ? { target_feature: targetFeature, function_name: functionName } : { target_feature: targetFeature }),
+  }),
+  updateTenantTargetFeature: (id, body) => apiRequest(`/admin/target-features/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  }),
+  deleteTenantTargetFeature: (id) => apiRequest(`/admin/target-features/${id}`, { method: 'DELETE' }),
+
+  // Read helpers
+  getAudits: () => apiRequest('/audits/'),
+  getAudit: (auditId) => apiRequest(`/audits/${auditId}`),
+  getAuditComplete: (auditId) => apiRequest(`/audits/${auditId}/complete`),
+  getModels: () => apiRequest('/pipeline/model/'),
+  getMcpStatus: (modelId) => apiRequest(`/pipeline/model/${modelId}/mcp-status/`),
+  getDatasets: () => apiRequest('/pipeline/dataset/').catch(() => []),
+  getDataset: (datasetId) => apiRequest(`/pipeline/dataset/metadata/${datasetId}`),
+  getDatasetColumns: (datasetId) => apiRequest(`/pipeline/dataset/columns/${datasetId}`),
+  getAvailableMetrics: () => apiRequest('/pipeline/available-metrics/'),
+  getEventsByAudit: (auditId) => apiRequest(`/events/audit/${auditId}`),
+  getMetricsByAudit: (auditId) => apiRequest(`/metrics/?audit_id=${auditId}`),
+  getMetricsByAuditDetailed: (auditId) => apiRequest(`/metrics/by-audit/${auditId}/detailed`),
+  getEntitiesByAudit: (auditId) => apiRequest(`/entities/by-audit/${auditId}`),
+  getPipelineMappings: (pipelineId) => apiRequest(`/events/audit-pipeline-mapping/${pipelineId}`),
+  // Step 5b: pipeline wiring
+  getAuditPipeline: (auditId) => apiRequest(`/audits/${auditId}/pipeline`),
+  addPipelinePair: (auditId, data) => apiRequest(`/audits/${auditId}/pipeline/model-dataset`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  removePipelinePair: (auditId, mappingId) => apiRequest(`/audits/${auditId}/pipeline/model-dataset/${mappingId}`, {
+    method: 'DELETE',
+  }),
+  getCategories: () => apiRequest('/events/categories'),
+  getEntities: (auditId) => apiRequest(`/events/entities/user/${auditId}`),
+  getUnderlyingFeatures: (auditId) => apiRequest(`/events/features/underlying/${auditId}`),
+  getTargetFeatures: () => apiRequest('/events/features/target'),
+  getEvaluationResults: (auditId) => apiRequest(`/evaluation/results/${auditId}/summary`),
+
+  // Import dataset (superuser only)
+  importDataset: (data) => apiRequest('/pipeline/dataset/import/', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  // Update operations
+  updateAudit: (auditId, data) => apiRequest(`/audits/${auditId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  updateApplication: (applicationId, data) => apiRequest(`/audits/applications/${applicationId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  updateEvent: (eventId, data) => apiRequest(`/events/${eventId}/comprehensive`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  updateMetric: (metricId, data) => apiRequest(`/metrics/${metricId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  updateQuantitativeMetric: (metricId, data) => apiRequest(`/metrics/quantitative/${metricId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  updateQualitativeMetric: (metricId, data) => apiRequest(`/metrics/qualitative/${metricId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  updateMetricThreshold: (metricId, data) => apiRequest(`/metrics/${metricId}/threshold`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  updateModel: (modelId, data) => apiRequest(`/pipeline/model/${modelId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  updateDataset: (datasetId, data) => apiRequest(`/pipeline/dataset/metadata/${datasetId}/all`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  updateApiKey: (apiKeyId, data) => apiRequest(`/pipeline/api-keys/${apiKeyId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+
+  // Delete operations
+  deleteAudit: (auditId) => apiRequest(`/audits/${auditId}`, {
+    method: 'DELETE',
+  }),
+  deleteApplication: (applicationId) => apiRequest(`/audits/applications/${applicationId}`, {
+    method: 'DELETE',
+  }),
+  deleteEvent: (eventId) => apiRequest(`/events/${eventId}`, {
+    method: 'DELETE',
+  }),
+  deleteEventsBatch: (eventIds) => apiRequest('/events/batch/delete', {
+    method: 'POST',
+    body: JSON.stringify({ event_ids: eventIds }),
+  }),
+  deleteMetric: (metricId) => apiRequest(`/metrics/${metricId}`, {
+    method: 'DELETE',
+  }),
+  deleteModel: (modelId) => apiRequest(`/pipeline/model/${modelId}`, {
+    method: 'DELETE',
+  }),
+  deleteDataset: (datasetId) => apiRequest(`/pipeline/dataset/metadata/${datasetId}`, {
+    method: 'DELETE',
+  }),
+  deleteApiKey: (apiKeyId) => apiRequest(`/pipeline/api-keys/${apiKeyId}`, {
+    method: 'DELETE',
+  }),
+  deletePipelineMapping: (mappingId) => apiRequest(`/events/audit-pipeline-mapping/${mappingId}`, {
+    method: 'DELETE',
+  }),
+  deleteUnderlyingFeature: (featureId, auditId) => apiRequest(`/events/features/user/${featureId}?audit_id=${auditId}`, {
+    method: 'DELETE',
+  }),
+  deleteTargetFeature: (targetFeatureId, auditId) => apiRequest(`/events/features/user/target/${targetFeatureId}?audit_id=${auditId}`, {
+    method: 'DELETE',
+  }),
+
+  // Mapping delete operations
+  removeUserFromAudit: (userId, auditId) => apiRequest(`/mappings/user-audit/?user_id=${userId}&audit_id=${auditId}`, {
+    method: 'DELETE',
+  }),
+  removeUserEvent: (userAuditId, eventId) => apiRequest(`/mappings/user-event/?user_audit_id=${userAuditId}&event_id=${eventId}`, {
+    method: 'DELETE',
+  }),
+  removeEventEntity: (eventId, entityId) => apiRequest(`/mappings/event-entity/?event_id=${eventId}&entity_id=${entityId}`, {
+    method: 'DELETE',
+  }),
+  removeMetricEvent: (metricId, eventId) => apiRequest(`/mappings/metric-event/?metric_id=${metricId}&event_id=${eventId}`, {
+    method: 'DELETE',
+  }),
+  removeEventCategory: (eventId, categoryId) => apiRequest(`/mappings/event-category/?event_id=${eventId}&category_id=${categoryId}`, {
+    method: 'DELETE',
+  }),
+  removeEventAuditStatus: (eventId, auditId) => apiRequest(`/mappings/event-audit-status/?event_id=${eventId}&audit_id=${auditId}`, {
+    method: 'DELETE',
+  }),
+  removeAuditModel: (modelId, auditId) => apiRequest(`/mappings/audit-model/?model_id=${modelId}&audit_id=${auditId}`, {
+    method: 'DELETE',
+  }),
+  removeAuditApplication: (auditId, applicationId) => apiRequest(`/mappings/audit-application/?audit_id=${auditId}&application_id=${applicationId}`, {
+    method: 'DELETE',
+  }),
+
+  // Create helpers for features, entities, categories
+  createUserFeature: (featureName, auditId) => apiRequest('/events/features/user', {
+    method: 'POST',
+    body: JSON.stringify({ feature_name: featureName, audit_id: parseInt(auditId) }),
+  }),
+  createUserTargetFeature: (targetFeature, auditId) => apiRequest('/events/features/user/target', {
+    method: 'POST',
+    body: JSON.stringify({ target_feature: targetFeature, audit_id: parseInt(auditId) }),
+  }),
+  createEntity: (name, numIndividuals, auditId) => apiRequest('/events/entities', {
+    method: 'POST',
+    body: JSON.stringify({ name, num_individuals: parseInt(numIndividuals), audit_id: parseInt(auditId) }),
+  }),
+  createCategory: (eventName, auditId) => apiRequest('/events/categories', {
+    method: 'POST',
+    body: JSON.stringify({ event_name: eventName, audit_id: parseInt(auditId) }),
+  }),
+
+  // --- Instigator setup edits (admin panel) ---
+  // Partial in-place edits of shared rows scoped to an audit. Each returns the
+  // updated row plus `also_used_by_audits` (other audits referencing the same row).
+
+  // Edit an event linked to this audit
+  adminEditEvent: (auditId, eventId, data) => apiRequest(`/admin/audits/${auditId}/events/${eventId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
+  // Edit a metric linked to this audit (formula for quantitative, definition for qualitative)
+  adminEditMetric: (auditId, metricId, data) => apiRequest(`/admin/audits/${auditId}/metrics/${metricId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
+  // Edit an entity linked to this audit
+  adminEditEntity: (auditId, entityId, data) => apiRequest(`/admin/audits/${auditId}/entities/${entityId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
+
+  // Event categories catalogue (superuser / tenant admin / any instigator)
+  listEventCategories: () => apiRequest('/admin/event-categories/'),
+  editEventCategory: (categoryId, data) => apiRequest(`/admin/event-categories/${categoryId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
+
+  // Taxonomy groups catalogue (superuser / tenant admin / any instigator)
+  listTaxonomyGroups: () => apiRequest('/admin/taxonomy-groups/'),
+  editTaxonomyGroup: (taxonomyId, data) => apiRequest(`/admin/taxonomy-groups/${taxonomyId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
+
+  // Reactivate a submitted audit — reopens the edit window (instigator / tenant admin).
+  // Pass userAuditId to reopen a single auditor's submission; omit for all.
+  reactivateAudit: (auditId, userAuditId = null) =>
+    apiRequest(
+      `/admin/audits/${auditId}/reactivate${userAuditId != null ? `?user_audit_id=${userAuditId}` : ''}`,
+      { method: 'POST' }
+    ),
 };
 
 // Error handling helper
@@ -672,9 +1031,9 @@ export const MODEL_TYPES = {
 };
 
 export const ACCESS_TYPES = {
-  0: 'Black Box',
-  1: 'Grey Box',
-  2: 'White Box'
+  0: 'Opaque',
+  1: 'Translucent',
+  2: 'Transparent'
 };
 
 export const EVALUATION_STATUS = {
@@ -685,6 +1044,10 @@ export const EVALUATION_STATUS = {
 // Helper function to translate access type code to string
 export const getAccessTypeLabel = (accessTypeCode) => {
   return ACCESS_TYPES[accessTypeCode] || 'Unknown';
+};
+
+export const demoAPI = {
+  resetDemo: () => apiRequest('/demo/reset', { method: 'POST' }),
 };
 
 // Export TokenStorage for use in AuthContext
@@ -700,6 +1063,7 @@ export default {
   auditOutcomeAPI,
   authAPI,
   uploadAPI,
+  adminAPI,
   handleApiError,
   healthCheck,
   AUDIT_STATUS,

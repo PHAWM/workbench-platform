@@ -16,7 +16,9 @@ from .create import (
     create_user_target_feature,
     create_user_entity,
     create_user_category,
-    create_comprehensive_event
+    create_comprehensive_event,
+    delete_user_feature,
+    delete_user_target_feature,
 )
 
 from .read import (
@@ -70,6 +72,8 @@ __all__ = [
     'create_user_entity',
     'create_user_category',
     'create_comprehensive_event',
+    'delete_user_feature',
+    'delete_user_target_feature',
 
     # Read operations
     'get_underlying_features_for_audit',

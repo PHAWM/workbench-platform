@@ -12,8 +12,7 @@ const Error403 = () => {
       setCountdown((prev) => {
         if (prev <= 1) {
           clearInterval(timer);
-          // Redirect to login page
-          window.location.href = '/login';
+          navigate('/login');
           return 0;
         }
         return prev - 1;
@@ -24,7 +23,7 @@ const Error403 = () => {
   }, [navigate]);
 
   const handleLoginRedirect = () => {
-    window.location.href = '/login';
+    navigate('/login');
   };
 
   return (

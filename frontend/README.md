@@ -29,7 +29,7 @@ A React-based web application for AI application auditing and performance analys
 
 1. Clone the repository:
    ```bash
-   git clone https://www.github.com/PHAWM/workbench-platoform.git
+   git clone <repository-url>
    cd workbench-frontend
    ```
 

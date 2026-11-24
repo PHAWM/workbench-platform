@@ -26,6 +26,57 @@ from src.models import *
 SEED_DATA_DIR = Path("storage/seed_data")
 DEFAULT_PASSWORD = "password123"
 
+
+def _get_storage_info():
+    """Return (storage_manager, is_s3) based on current config."""
+    from src.services.utility_service.s3_storage_service import get_storage_manager, S3StorageManager
+    sm = get_storage_manager()
+    return sm, isinstance(sm, S3StorageManager)
+
+
+def _upload_audit_files_to_s3(sm):
+    """Upload all local storage/audits/ files to S3, skipping .DS_Store."""
+    import time
+    import src.services.utility_service.s3_storage_service as _s3_mod
+    # Force a fresh S3 client — the cached singleton may have been created
+    # before RustFS finished initialising.
+    _s3_mod._storage_manager_instance = None
+    sm, _ = _get_storage_info()
+
+    local_base = Path("storage")
+    audits_dir = local_base / "audits"
+    if not audits_dir.exists():
+        print("   ⚠️  No local storage/audits/ directory found — skipping S3 upload")
+        return
+
+    # Collect all files first
+    files_to_upload = [
+        f for f in audits_dir.rglob("*")
+        if f.is_file() and not f.name.startswith(".")
+    ]
+
+    uploaded = 0
+    failed = []
+    for file_path in files_to_upload:
+        # e.g. storage/audits/audit_2/input/metadata.csv → audits/audit_2/input/metadata.csv
+        s3_key = str(file_path.relative_to(local_base))
+        data = file_path.read_bytes()
+        # Retry once after a short delay (handles RustFS startup race)
+        for attempt in range(2):
+            try:
+                sm.write_file(s3_key, data)
+                uploaded += 1
+                break
+            except Exception as e:
+                if attempt == 0:
+                    time.sleep(2)
+                else:
+                    failed.append((s3_key, str(e)))
+
+    for key, err in failed:
+        print(f"   ⚠️  Failed to upload {key}: {err}")
+    print(f"   ✅ Uploaded {uploaded}/{len(files_to_upload)} file(s) to S3")
+
 # Audit-Event mapping: defines which events belong to which audit
 # Events are matched by name prefix
 AUDIT_EVENT_MAPPING = {
@@ -89,7 +140,17 @@ def read_csv(filename: str) -> List[Dict[str, Any]]:
 
     with open(filepath, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
-        return list(reader)
+        # Strip surrounding whitespace from header keys and cell values.
+        # CSVs are hand-edited and a stray space (e.g. " mcp_tool_name")
+        # silently breaks row.get() lookups downstream.
+        rows: List[Dict[str, Any]] = []
+        for row in reader:
+            rows.append({
+                (k.strip() if isinstance(k, str) else k):
+                    (v.strip() if isinstance(v, str) else v)
+                for k, v in row.items()
+            })
+        return rows
 
 
 def parse_bool(value: str) -> bool:
@@ -234,7 +295,7 @@ def add_audit_roles(session: Session) -> Dict[str, int]:
 # CSV-based Data Loading
 # ============================================================================
 
-def load_applications_from_csv(session: Session) -> Dict[str, int]:
+def load_applications_from_csv(session: Session, allowed_apps: list[str] | None = None) -> Dict[str, int]:
     """Load applications with full V3 data including testing_evaluation, deployment, business_case, legal_framework.
 
     Returns:
@@ -287,6 +348,8 @@ def load_applications_from_csv(session: Session) -> Dict[str, int]:
 
     for app_data in applications:
         name = app_data["name"]
+        if allowed_apps is not None and name not in allowed_apps:
+            continue
         existing = session.exec(select(Application).where(Application.name == name)).first()
         if existing:
             apps_map[name] = existing.id
@@ -303,10 +366,10 @@ def load_applications_from_csv(session: Session) -> Dict[str, int]:
     return apps_map
 
 
-def load_models_from_csv(session: Session) -> Dict[str, int]:
+def load_models_from_csv(session: Session, allowed_apps: list[str] | None = None) -> Dict[str, int]:
     """Load model metadata from CSV.
 
-    CSV format: name,model_type,location,acceptable_formats,output_context,task
+    CSV format: name,model_type,location,acceptable_formats,output_context,task,mcp_tool_name
 
     Returns:
         Dict mapping model name to id
@@ -322,7 +385,8 @@ def load_models_from_csv(session: Session) -> Dict[str, int]:
             {
                 "name": "SAM",
                 "model_type": False,
-                "location": "http://sam-api:8002",
+                "location": "http://sam-attachment-monitor:8002",
+                "mcp_tool_name": "predict_attachment",
                 "acceptable_formats": ["wav", "mp3"],
                 "output_context": "Prediction.",
                 "task": "Classifies Secure and Insecure attachments."
@@ -330,7 +394,8 @@ def load_models_from_csv(session: Session) -> Dict[str, int]:
             {
                 "name": "Annif",
                 "model_type": False,
-                "location": "http://annif-api:8004",
+                "location": "http://annif-subject-indexing:8004",
+                "mcp_tool_name": "predict_subjects",
                 "acceptable_formats": ["txt", "html"],
                 "output_context": "Theme ranking of content",
                 "task": "Text Analysis"
@@ -353,6 +418,9 @@ def load_models_from_csv(session: Session) -> Dict[str, int]:
         if not name:
             continue
 
+        if allowed_apps is not None and name not in allowed_apps:
+            continue
+
         existing = session.exec(select(Modelmetadata).where(Modelmetadata.name == name)).first()
         if existing:
             models_map[name] = existing.id
@@ -369,7 +437,8 @@ def load_models_from_csv(session: Session) -> Dict[str, int]:
             location=row.get("location", ""),
             acceptable_formats=acceptable_formats,
             output_context=row.get("output_context", ""),
-            task=row.get("task", "")
+            task=row.get("task", ""),
+            mcp_tool_name=row.get("mcp_tool_name", "")
         )
         session.add(model)
         session.flush()
@@ -478,17 +547,28 @@ def load_datasets_from_csv(session: Session) -> Dict[str, int]:
     print("\n📦 Loading datasets from CSV...")
     datasets_map = {}
 
-    # Create directory structure for all audit storage locations
-    print("   📁 Creating directory structure for audits...")
-    audit_locations = [
-        ("storage/audits/audit_1/input", "storage/audits/audit_1/output"),
-        ("storage/audits/audit_2/input", "storage/audits/audit_2/output"),
-        ("storage/audits/audit_3/input", "storage/audits/audit_3/output")
-    ]
+    # Set up storage — upload to S3 or create local directories
+    sm, is_s3 = _get_storage_info()
 
-    for input_loc, output_loc in audit_locations:
-        ensure_directory_exists(input_loc)
-        ensure_directory_exists(output_loc)
+    if is_s3:
+        print("   ☁️  S3 backend detected — uploading audit files to RustFS...")
+        _upload_audit_files_to_s3(sm)
+        # S3 key prefixes (no leading "storage/")
+        audit_locations = [
+            ("audits/audit_1/input", "audits/audit_1/output"),
+            ("audits/audit_2/input", "audits/audit_2/output"),
+            ("audits/audit_3/input", "audits/audit_3/output"),
+        ]
+    else:
+        print("   📁 Local backend — creating directory structure for audits...")
+        audit_locations = [
+            ("storage/audits/audit_1/input", "storage/audits/audit_1/output"),
+            ("storage/audits/audit_2/input", "storage/audits/audit_2/output"),
+            ("storage/audits/audit_3/input", "storage/audits/audit_3/output"),
+        ]
+        for input_loc, output_loc in audit_locations:
+            ensure_directory_exists(input_loc)
+            ensure_directory_exists(output_loc)
 
     # Dataset definitions with full metadata
     datasets_config = [
@@ -511,7 +591,7 @@ def load_datasets_from_csv(session: Session) -> Dict[str, int]:
                     "file": {"type": "varchar(100)", "range": "N/A"},
                     "true_value": {"type": "varchar(100)", "range": "N/A"},
                 },
-                "location": "storage/audits/audit_1/input"
+                "location": audit_locations[0][0]
             },
             "output": {
                 "headers": {"id": "integer", "output": "string"},
@@ -520,7 +600,7 @@ def load_datasets_from_csv(session: Session) -> Dict[str, int]:
                     "id": {"type": "int", "range": "N/A"},
                     "output": {"type": "varchar(100)", "range": "N/A"}
                 },
-                "location": "storage/audits/audit_1/output"
+                "location": audit_locations[0][1]
             }
         },
         {
@@ -535,7 +615,7 @@ def load_datasets_from_csv(session: Session) -> Dict[str, int]:
                     "subject": {"type": "text", "range": "N/A"},
                     "true_value": {"type": "varchar(100)", "range": "N/A"},
                 },
-                "location": "storage/audits/audit_2/input"
+                "location": audit_locations[1][0]
             },
             "output": {
                 "headers": {"id": "integer", "output": "string", "subjects": "string"},
@@ -545,7 +625,7 @@ def load_datasets_from_csv(session: Session) -> Dict[str, int]:
                     "output": {"type": "text", "range": "N/A"},
                     "subjects": {"type": "text", "range": "N/A"}
                 },
-                "location": "storage/audits/audit_2/output"
+                "location": audit_locations[1][1]
             }
         },
         {
@@ -560,7 +640,7 @@ def load_datasets_from_csv(session: Session) -> Dict[str, int]:
                     "subject": {"type": "varchar(100)", "range": "N/A"},
                     "true_value": {"type": "varchar(100)", "range": "N/A"},
                 },
-                "location": "storage/audits/audit_3/input"
+                "location": audit_locations[2][0]
             },
             "output": {
                 "headers": {"id": "integer", "output": "string", "subjects": "string"},
@@ -570,7 +650,7 @@ def load_datasets_from_csv(session: Session) -> Dict[str, int]:
                     "output": {"type": "text", "range": "N/A"},
                     "subjects": {"type": "text", "range": "N/A"}
                 },
-                "location": "storage/audits/audit_3/output"
+                "location": audit_locations[2][1]
             }
         }
     ]
@@ -1129,11 +1209,15 @@ def load_target_features_from_csv(session: Session) -> Dict[str, int]:
 
 def load_audits_from_csv(
     session: Session,
-    apps_map: Dict[str, int]
+    apps_map: Dict[str, int],
+    allowed_apps: list[str] | None = None,
 ) -> Dict[str, int]:
     """Load audits from CSV.
 
     CSV format: name,description,application
+
+    Args:
+        allowed_apps: When set, only load audits whose application is in this list.
 
     Returns:
         Dict mapping audit name to id
@@ -1173,13 +1257,18 @@ def load_audits_from_csv(
         if not name:
             continue
 
+        app_name = row.get("application", "")
+
+        # Skip audits that don't belong to the allowed applications
+        if allowed_apps is not None and app_name not in allowed_apps:
+            continue
+
         existing = session.exec(select(Audit).where(Audit.name == name)).first()
         if existing:
             audits_map[name] = existing.id
             print(f"   ✓ Audit exists: {name}")
             continue
 
-        app_name = row.get("application", "")
         audit = Audit(
             name=name,
             description=row.get("description", ""),
@@ -2234,11 +2323,15 @@ def create_user_metrics_mappings(
 # Main Migration Function
 # ============================================================================
 
-def run_csv_migration(session: Session):
+def run_csv_migration(session: Session, allowed_apps: list[str] | None = None):
     """Run the complete CSV-based migration.
 
     This creates a minimal setup with two test accounts and loads
     all other data from CSV files.
+
+    Args:
+        allowed_apps: Optional list of application names to include, e.g. ["SAM"].
+                      When None, all applications are loaded (original behaviour).
     """
     print("\n" + "=" * 60)
     print("🚀 Starting CSV-based v4 Migration")
@@ -2253,9 +2346,11 @@ def run_csv_migration(session: Session):
     # 2. Create test users
     users_map = add_test_users(session)
 
-    # 3. Load base data from CSV
-    apps_map = load_applications_from_csv(session)
-    models_map = load_models_from_csv(session)
+    # 3. Load base data from CSV (filtered to allowed_apps when set)
+    if allowed_apps is not None:
+        print(f"   🔒 Tenant filter active — keeping: {sorted(allowed_apps)}")
+    apps_map = load_applications_from_csv(session, allowed_apps=allowed_apps)
+    models_map = load_models_from_csv(session, allowed_apps=allowed_apps)
 
     # 3.5 Create API keys for models (REQUIRED for evaluation service)
     add_api_keys(session, models_map, users_map)
@@ -2274,7 +2369,7 @@ def run_csv_migration(session: Session):
     add_underlying_features_and_mappings(session)
 
     # 5. Load audits
-    audits_map = load_audits_from_csv(session, apps_map)
+    audits_map = load_audits_from_csv(session, apps_map, allowed_apps=allowed_apps)
 
     # 6. Create user-audit mappings
     user_audit_map = create_audit_user_mappings(session, users_map, roles_map, audits_map)

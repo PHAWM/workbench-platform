@@ -102,16 +102,11 @@ export const CreateEventForm = ({
   // Handle entity creation - create via API and get the ID
   const handleEntityCreate = async (newEntityName) => {
     try {
-      // Create entity via API with num_individuals = 1
-      const response = await eventsAPI.createEntity(newEntityName, 1, parseInt(auditId));
+      const response = await eventsAPI.createEntity(newEntityName, 0, parseInt(auditId));
 
       // console.log('Entity creation response:', response);
 
-      // Update entity details
-      const updatedEntityDetails = {
-        ...entityDetails,
-        [newEntityName]: 1
-      };
+      const updatedEntityDetails = { ...entityDetails, [newEntityName]: 0 };
       setEntityDetails(updatedEntityDetails);
 
       // Add to available entities list with the ID from response
@@ -124,7 +119,7 @@ export const CreateEventForm = ({
         entities_id: entityId,
         name: newEntityName,
         entity_name: newEntityName,
-        num_individuals: 1
+        num_individuals: 0
       };
 
       setAvailableEntities(prev => [...prev, newEntity]);

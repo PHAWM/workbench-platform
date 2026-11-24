@@ -4,6 +4,12 @@ import QuantitativeMetricForm from '../metric/QuantitativeMetricForm';
 import QualitativeMetricForm from '../metric/QualitativeMetricForm';
 import MetricTypeModal from './metricTypeSelection';
 import { metricsAPI } from '../../api/apiService';
+import {
+  buildQuantitativeMetricValues,
+  buildQualitativeMetricValues,
+  detectAndCreateNewFeatures,
+} from '../../utils/formUtils';
+import { buildMetricApiPayload } from '../../utils/auditUtils';
 
 const MetricAssignmentModal = ({
   eventData,
@@ -64,20 +70,25 @@ const MetricAssignmentModal = ({
   };
 
   const handleComplete = () => {
+    const selectedMetricObjects = selectedMetrics.map(metricId =>
+      availableMetrics.find(m => m.id === metricId)
+    ).filter(Boolean);
+
     const eventWithMetrics = {
       ...eventData,
       name: eventData.name || eventData.eventName,
       eventName: eventData.eventName || eventData.name,
-      
+
       selectedMetricIds: selectedMetrics,
-      metrics: selectedMetrics.map(metricId => {
-        const metric = availableMetrics.find(m => m.id === metricId);
-        return {
-          ...metric,
-          useInAudit: false
-        };
-      }),
-      
+      // Pair each selected metric with its values_id (captured when the metric
+      // was POSTed). Existing metrics from the catalogue won't have one and
+      // fall back to null — same shape the backend expects.
+      selectedMetricPairs: selectedMetricObjects.map(m => ({
+        metric_id: m.id,
+        values_id: m.values_id ?? null,
+      })),
+      metrics: selectedMetricObjects.map(m => ({ ...m, useInAudit: false })),
+
       id: `event-${Date.now()}`,
       isUserCreated: true
     };
@@ -115,27 +126,52 @@ const MetricAssignmentModal = ({
 
   const handleMetricFormComplete = async (metricData) => {
     try {
-      const apiPayload = {
-        audit_id: parseInt(auditId),
-        name: metricData.name,
-        description: metricData.description,
-        reason: metricData.reason,
-        metric_values: [{
-          output: null,
-          threshold: toString(metricData.threshold) || 0.5,
-          features: Array.isArray(metricData.targetFeatures) 
-            ? metricData.targetFeatures 
-            : [metricData.targetFeatures].filter(Boolean),
-          scale_points: metricData.type === 'qualitative' ? metricData.scale_points : null
-        }],
-        event_mappings: []
-      };
+      console.log('[metricAssignment.handleMetricFormComplete] metricData IN:', {
+        type: metricData?.type,
+        threshold: metricData?.threshold,
+        underlyingFeatures: metricData?.underlyingFeatures,
+        targetFeatures: metricData?.targetFeatures,
+        scalePointsArray: metricData?.scalePointsArray,
+        featureRanges: metricData?.featureRanges,
+        all_keys: metricData ? Object.keys(metricData) : null,
+      });
 
-      if (metricData.type === 'qualitative') {
-        apiPayload.definition = metricData.definition;
-      } else if (metricData.type === 'quantitative') {
-        apiPayload.formula = metricData.definition;
-      }
+      // 1. Create any new features in the catalogue first so we have real IDs.
+      // Mirrors handleEventAssignmentComplete in auditHandlers.jsx.
+      const { featureNameToIdMap } = await detectAndCreateNewFeatures(
+        metricData,
+        availableUnderlyingFeatures,
+        availableTargetFeatures,
+        auditId,
+      );
+
+      // 2. Build metric_values via the spec-compliant builders.
+      const metric_values = metricData.type === 'quantitative'
+        ? buildQuantitativeMetricValues(
+            metricData,
+            availableUnderlyingFeatures,
+            availableTargetFeatures,
+            featureNameToIdMap,
+          )
+        : buildQualitativeMetricValues(
+            metricData,
+            availableUnderlyingFeatures,
+            availableTargetFeatures,
+            featureNameToIdMap,
+          );
+
+      // 3. POST the metric standalone — no event_mappings here. The event
+      // we're inside doesn't exist server-side yet (eventData has a
+      // client-only id), so we can't link the metric to it now. The parent
+      // posts the event later with `metrics: [{metric_id, values_id: null}]`
+      // and that's what creates the event<->metric mapping.
+      const apiPayload = buildMetricApiPayload(
+        { ...metricData, metric_values, events: [] },
+        auditId,
+        metricData.type,
+      );
+
+      console.log('[metricAssignment.handleMetricFormComplete] apiPayload OUT:', JSON.stringify(apiPayload, null, 2));
 
       let createdMetric;
       if (metricData.type === 'qualitative') {
@@ -144,8 +180,14 @@ const MetricAssignmentModal = ({
         createdMetric = await metricsAPI.createQuantitativeMetric(apiPayload);
       }
 
+      // The metric POST returns `created_values: [{id, ...}]`. We need to
+      // capture that id so it can be sent as `values_id` when the event is
+      // posted — otherwise the event<->metric mapping is left dangling.
+      const valuesId = createdMetric?.created_values?.[0]?.id ?? null;
+
       const newMetric = {
         id: createdMetric.id,
+        values_id: valuesId,
         name: metricData.name,
         description: metricData.description,
         definition: metricData.definition,
@@ -254,7 +296,7 @@ const MetricAssignmentModal = ({
         {isExpanded && (
           <div className="ml-7 space-y-2 text-base text-gray-700">
             <div><strong>Description:</strong> {metric.description}</div>
-            <div><strong>Definition:</strong> {metric.definition || metric.formula}</div>
+            {/* <div><strong>Definition:</strong> {metric.definition || metric.formula}</div> */}
             <div><strong>Metric Creator:</strong> {metric.creator}</div>
             <div><strong>Features:</strong> {metric.features}</div>
             <div><strong>Metric Threshold:</strong> {metric.threshold}</div>
@@ -285,6 +327,7 @@ const MetricAssignmentModal = ({
           showBackToAssignment={true}
           onBackToAssignment={handleBackToMetricAssignment}
           availableUnderlyingFeatures={availableUnderlyingFeatures}
+          availableTargetFeatures={availableTargetFeatures}
         />
       );
     }

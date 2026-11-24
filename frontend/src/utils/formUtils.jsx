@@ -36,20 +36,12 @@ export const detectAndCreateNewEntities = async (formData, availableEntities, au
     }
   }
 
-  // Check if we need to get num_individuals from formData
-  // This will be populated from the popup
-  const entityDetails = formData.entityDetails || {};
-
   // Post new entities to the API and get their IDs
   const createdEntities = [];
 
   for (const entityName of newEntities) {
     try {
-      // Get num_individuals from formData, default to 1 if not specified
-      const numIndividuals = entityDetails[entityName] || 1;
-
-      // console.log(`Posting new entity: ${entityName} with ${numIndividuals} individuals for audit ${auditId}`);
-      const result = await eventsAPI.createEntity(entityName, numIndividuals, parseInt(auditId));
+      const result = await eventsAPI.createEntity(entityName, 0, parseInt(auditId));
       createdEntities.push(result);
 
       // Map the entity name to its newly created ID
@@ -269,7 +261,14 @@ export const parseUnderlyingFeatures = (featuresData, availableUnderlyingFeature
     return featuresData.map(f => {
       if (typeof f === 'object' && f.feature_id) {
         const feature = availableUnderlyingFeatures.find(af => af.id === f.feature_id);
-        const featureName = feature ? (feature.feature_name || feature.name || `Feature ${f.feature_id}`) : `Feature ${f.feature_id}`;
+        // Prefer the looked-up catalogue name, then any name carried inline on the
+        // reference itself (handles metadata not yet loaded), then a numeric fallback.
+        const featureName =
+          feature?.feature_name ||
+          feature?.name ||
+          f.feature_name ||
+          f.name ||
+          `Feature ${f.feature_id}`;
         // console.log(`Converted feature object ${JSON.stringify(f)} to string: ${featureName}`);
         return featureName;
       }
@@ -381,11 +380,12 @@ export const parseFeatureRanges = (metric, availableUnderlyingFeatures) => {
       if (featureData?.ranges && Array.isArray(featureData.ranges)) {
         const foundFeature = availableUnderlyingFeatures?.find(af => af.id === featureData.feature_id);
         const featureName = foundFeature ? foundFeature.feature_name : `Feature ${featureData.feature_id}`;
-        
-        ranges[featureName] = {
-          group1: featureData.ranges[0] || '',
-          group2: featureData.ranges[1] || ''
-        };
+
+        const groupMap = {};
+        featureData.ranges.forEach((value, i) => {
+          groupMap[`group${i + 1}`] = value || '';
+        });
+        ranges[featureName] = groupMap;
       }
     });
     if (Object.keys(ranges).length > 0) return ranges;
@@ -590,11 +590,7 @@ export const buildQuantitativeMetricValues = (formData, availableUnderlyingFeatu
 
   const targetFeaturesWithIds = formData.targetFeatures?.map(feature => {
     const featureId = getTargetFeatureId(feature, availableTargetFeatures, featureNameToIdMap);
-
-    const mappedFeature = {
-      feature_id: featureId,
-    };
-    return mappedFeature;
+    return { feature_id: featureId, ranges: [] };
   }) || [];
 
   return [{
@@ -606,32 +602,50 @@ export const buildQuantitativeMetricValues = (formData, availableUnderlyingFeatu
   }];
 };
 
-export const buildQualitativeMetricValues = (formData, availableUnderlyingFeatures, featureNameToIdMap = null) => {
-  // CORRECTED: Use the right field name - it's formData.features in qualitative forms, not underlyingFeatures
+export const buildQualitativeMetricValues = (formData, availableUnderlyingFeatures, availableTargetFeatures = [], featureNameToIdMap = null) => {
+  const numGroups = formData.featureGroups === 'Minimum of 2'
+    ? 2
+    : parseInt(formData.featureGroups) || 2;
+
   const featuresArray = formData.underlyingFeatures?.map(feature => {
     const featureId = getUnderlyingFeatureId(feature, availableUnderlyingFeatures, featureNameToIdMap);
     const featureName = getUnderlyingFeatureName(feature, availableUnderlyingFeatures);
 
-    const mappedFeature = {
-      feature_id: featureId,
-      ranges: formData.featureRanges?.[featureName] ?
-        [formData.featureRanges[featureName].group1, formData.featureRanges[featureName].group2] : []
-    };
-
-    // console.log(`Mapped feature  "${featureName}" to:`, mappedFeature);
-    return mappedFeature;
+    const ranges = [];
+    if (formData.featureRanges?.[featureName]) {
+      for (let i = 1; i <= numGroups; i++) {
+        const groupValue = formData.featureRanges[featureName][`group${i}`];
+        if (groupValue) ranges.push(groupValue);
+      }
+    }
+    return { feature_id: featureId, ranges };
   }) || [];
 
-  const scalePoints = formData.scalePointsArray?.reduce((acc, item) => {
-    acc[item.label] = item.value;
-    return acc;
-  }, {}) || {};
+  const targetFeaturesArray = formData.targetFeatures?.map(feature => {
+    const featureId = getTargetFeatureId(feature, availableTargetFeatures, featureNameToIdMap);
+    return { feature_id: featureId, ranges: [] };
+  }) || [];
+
+  // scale_points: {label: value} object. The form keeps it as scalePointsArray.
+  const scalePoints = formData.scalePointsArray?.length
+    ? formData.scalePointsArray.reduce((acc, item) => {
+        if (item?.label) acc[item.label] = item.value;
+        return acc;
+      }, {})
+    : null;
+
+  // Threshold must be a non-empty string; backend rejects undefined/missing.
+  const thresholdRaw = formData.threshold;
+  const threshold = (thresholdRaw === undefined || thresholdRaw === null || thresholdRaw === '')
+    ? 'Not specified'
+    : String(thresholdRaw);
 
   return [{
     output: null,
-    threshold: formData.threshold || 'Not specified',
+    threshold,
     underlying_features: featuresArray,
-    scale_points: scalePoints
+    target_features: targetFeaturesArray,
+    scale_points: scalePoints,
   }];
 };
 

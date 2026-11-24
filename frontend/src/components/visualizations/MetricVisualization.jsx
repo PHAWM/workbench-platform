@@ -19,8 +19,10 @@ const MetricVisualization = ({
   showTitle = true,
   title = null,
 }) => {
-  // If no output, show placeholder
-  if (!output && (!chartData || chartData.length === 0)) {
+  // If no output (missing, or an empty object with no keys), show placeholder
+  const isEmptyOutput =
+    !output || (typeof output === 'object' && !Array.isArray(output) && Object.keys(output).length === 0);
+  if (isEmptyOutput && (!chartData || chartData.length === 0)) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-center">
         <div className="text-5xl mb-4">📊</div>

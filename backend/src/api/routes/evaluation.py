@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
 from src.api.deps import (
-    SessionDep, get_current_user
+    SessionDep, get_current_user, get_current_tenant_id
 )
 
 from src.models import *
@@ -163,14 +163,16 @@ def clear_output_evaluation_results(
 async def generate_output_evaluation_results(
     audit_id: int,
     session: SessionDep,
-    current_user = Depends(get_current_user)
+    current_user = Depends(get_current_user),
+    tenant_id: str | None = Depends(get_current_tenant_id)
 ):
     """Generate output evaluation results by running inference on uploaded data"""
     try:
         result = await evaluation_service.classify_output_comprehensive(
             audit_id=audit_id,
             current_user_id=current_user.id,
-            session=session
+            session=session,
+            tenant_id=tenant_id
         )
         return result
     except HTTPException:
@@ -225,14 +227,16 @@ def update_outcome_evaluation_batch(
 async def generate_results(
     audit_id: int,
     session: SessionDep,
-    current_user = Depends(get_current_user)
+    current_user = Depends(get_current_user),
+    tenant_id: str | None = Depends(get_current_tenant_id)
 ):
     """Generate evaluation results by running inference and evaluation on datasets"""
     try:
         result = await evaluation_service.generate_results_comprehensive(
             audit_id=audit_id,
             current_user_id=current_user.id,
-            session=session
+            session=session,
+            tenant_id=tenant_id
         )
         return result
     except HTTPException:

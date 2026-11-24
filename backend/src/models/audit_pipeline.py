@@ -56,6 +56,37 @@ class MappingAuditOutcomeUser(SQLModel, table=True):
 class AuditPipeline(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
 
+# ---------------------------------------------------------------------------
+# Pipeline read models (non-table, used as API responses)
+# ---------------------------------------------------------------------------
+
+class PipelineModelDatasetPair(SQLModel):
+    """One model-dataset pair wired into a pipeline."""
+    mapping_id: int
+    model_id: int
+    model_name: str
+    dataset_id: int
+    dataset_purpose: str
+    dataset_has_input: bool
+    dataset_has_output: bool
+
+class PipelineOverviewResponse(SQLModel):
+    """Full pipeline overview for an audit, including all wired model-dataset pairs."""
+    audit_id: int
+    pipeline_id: int
+    pairs: List[PipelineModelDatasetPair]
+    total_models: int
+    total_datasets: int
+
+class PipelineModelDatasetAdd(SQLModel):
+    """Request body to wire a model-dataset pair into an audit's pipeline."""
+    model_id: int
+    dataset_id: int
+
+class AuditInviteRequest(SQLModel):
+    """Request body for inviting a user to an audit by email address."""
+    email: str
+
 class Audit(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     name: str  | None = Field(default=None)
@@ -182,6 +213,10 @@ class AuditCompleteCreateResponse(SQLModel):
     model_association_ids: List[int]
     message: str
 
+class AuditUpdate(SQLModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
 class AuditCompleteCreate(SQLModel):
     name: str
     description: str
@@ -190,3 +225,4 @@ class AuditCompleteCreate(SQLModel):
     recommendation: Optional[str] = None
     create_pipeline: bool = False
     model_ids: Optional[List[int]] = None
+    dataset_ids: Optional[List[int]] = None

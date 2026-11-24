@@ -3,7 +3,7 @@ import { ChevronDown, HelpCircle, User } from 'lucide-react';
 import { useParams, useLocation } from 'react-router-dom';
 
 // Documentation URL mapping based on current page/route
-const DOCS_BASE_URL = import.meta.env.VITE_DOCS_URL;
+const DOCS_BASE_URL = import.meta.env.VITE_DOCS_URL || 'http://127.0.0.1:8080';
 
 const getHelpUrl = (pathname, helpContext = {}) => {
   const { activeForm, activeView } = helpContext;

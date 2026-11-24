@@ -3,7 +3,7 @@
  * Contains submission and recommendation functions
  */
 
-import { evaluationAPI } from '../api/apiService';
+import { evaluationAPI, adminAPI } from '../api/apiService';
 
 /**
  * Map recommendation string to numeric value for API
@@ -49,6 +49,8 @@ export const submitAuditOutcome = async (auditId, overallRecommendation, feedbac
 
     // console.log('Submitting audit data:', submitData);
     await evaluationAPI.submitAudit(auditId, submitData);
+    // Stamp submitted_at and compute duration_seconds on the backend
+    await adminAPI.submitAuditTiming(auditId).catch(() => {});
 
     return { success: true };
   } catch (error) {
@@ -101,8 +103,7 @@ export const createAuditOutcomeHandlers = ({
       setShowConfirmModal(false);
       toast.success('Audit outcome submitted successfully!');
       isAuditReadOnly("Submitted");
-      // Reset after showing success - force absolute navigation to dashboard
-      window.location.href = '/dashboard';
+      window.location.href = (import.meta.env.BASE_URL || '/') + 'dashboard';
     } else {
       toast.error('Error submitting audit. Please try again.');
     }

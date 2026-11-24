@@ -14,6 +14,72 @@ Access is controlled through the `MappingAuditUser` relationship. Users can only
 
 ---
 
+## How Evaluation Runs (Inference + Metrics)
+
+The `generate` endpoints (§6, §8) drive a two-stage pipeline:
+
+**1. Inference** — for each discovered input file, the engine prepares model
+input, calls the model, and transforms the raw output into an evaluation-ready
+row. Dispatch is handled by
+[`run_model_inference()`](../../src/services/performance_service/inference_engine.py),
+which chooses, per model:
+
+- **MCP (preferred)** — when the model metadata has an `mcp_tool_name` and an
+  `http(s)://` `location`. Calls that tool over SSE via `MCPClientManager`;
+  output is flattened by `merge_mcp_output()`.
+- **Universal LLM (HTTP)** — when `location == "with_api_key"` and the model is
+  generative. Posts to `http://universal-llm-api:8003/predict`.
+- **Legacy HTTP** — otherwise. Posts to `<location>/predict`.
+
+See [Model Service → MCP Integration](model_service.md#mcp-integration) for the
+routing rules and the model-metadata fields involved. If the model API is
+unreachable mid-run, the loop falls back to a cached `output.csv` when present.
+
+**2. Metric computation** — transformed rows are scored with the functions in
+`METRICS_REGISTRY` (via `evaluate_function`), grouped by the metric's
+**underlying features** (sensitive attributes) and their defined ranges. Results
+are persisted and returned in the `underlying_features` structure documented
+under [Output Structure](#output-structure).
+
+### Evaluation MCP Server
+
+Metric computation is also exposed as an **MCP server** so metrics can be run as
+tools (e.g. by an agent or external client), independent of the HTTP API.
+
+- **Module:** [`src/services/performance_service/mcp_server.py`](../../src/services/performance_service/mcp_server.py)
+- **Transport:** SSE — connect to `http://localhost:8005/sse`
+- **Run:** `python -m src.services.performance_service.mcp_server`
+
+**Tools exposed:**
+
+| Tool | Purpose | Key arguments |
+|---|---|---|
+| `evaluate_metric` | Compute one metric | `metric_name` (required), `y_pred`, `y_true`, `sensitive_attr`, `y_pred_proba`, `ranges`, `kwargs` |
+| `list_available_metrics` | List all metrics in the registry, grouped/sorted | _(none)_ |
+
+Both return a single `TextContent` whose `text` is JSON. `evaluate_metric`
+delegates to the same `evaluate_function()` used by the HTTP pipeline, so results
+are identical regardless of entry point. Errors are returned as
+`{"error": "..."}` rather than raised.
+
+Example (via the shared client):
+
+```python
+from src.services.utility_service.mcp_client import MCPClientManager
+
+client = MCPClientManager()
+result = await client.call_tool(
+    server_url="http://localhost:8005",
+    tool_name="evaluate_metric",
+    arguments={"metric_name": "accuracy", "y_true": [1, 0, 1], "y_pred": [1, 0, 0]},
+)
+```
+
+> The full catalogue of metric names/aliases lives in
+> [Model Service → Evaluation Metrics](model_service.md#evaluation-metrics-run_functionspy).
+
+---
+
 ## Endpoints
 
 ### 1. Get Status Summary
@@ -401,7 +467,7 @@ Access is controlled through the `MappingAuditUser` relationship. Users can only
 
 ### 7. Clear Output Evaluation Results
 
-**Endpoint:** `DELETE /evaluation/results/{audit_id}/clear/output`
+**Endpoint:** `DELETE /evaluation/results/{audit_id}/output/clear`
 
 **Description:** Clears cached output evaluation results to force re-running inference. This deletes all outcome evaluation values and their mappings for the current user and audit.
 

@@ -89,20 +89,31 @@ class Token(SQLModel):
 # Contents of JWT token
 class TokenPayload(SQLModel):
     sub: str | None = None
+    tid: str | None = None  # tenant schema — None means superuser (public schema)
 
 # Properties to return via API, id is always required
 class UserPublic(SQLModel):
     email: EmailStr
     full_name: str
     username: str
-    ethnicity: str 
+    ethnicity: str
     gender:str
     country:str
     organisation:str
+    is_superuser: bool = False
 
 class UsersPublic(SQLModel):
     data: list[UserPublic]
     count: int
+
+class TenantAdminCreate(SQLModel):
+    """Used by the superuser when provisioning a tenant to seed the first admin user."""
+    email: EmailStr = Field(max_length=255)
+    full_name: str
+    username: str
+    password: str = Field(min_length=8, max_length=40)
+    organisation: str = Field(default="Not Specified")
+
 
 class UserRoles(SQLModel, table=True):
     id: int = Field(primary_key=True)

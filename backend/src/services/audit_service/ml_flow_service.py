@@ -6,9 +6,10 @@ from sqlmodel import Session, select
 
 from src.models import *
 
-def create_api_key(*, session: Session, api_key_data: ApikeymodelCreate) -> Any:
+def create_api_key(*, session: Session, api_key_data: ApikeymodelCreate, user_id: uuid.UUID) -> Any:
+
     db_api_key = Apikeymodel(
-        user_id=api_key_data.user_id,
+        user_id=user_id,
         model_api_key=api_key_data.model_api_key,
         costing_policy=api_key_data.costing_policy,
         model_metadata_id=api_key_data.model_metadata_id

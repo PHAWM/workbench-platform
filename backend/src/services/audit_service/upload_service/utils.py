@@ -5,11 +5,14 @@ from sqlmodel import Session, select
 import pandas as pd
 
 from src.models import *
+from src.services.utility_service.s3_storage_service import get_storage_manager, S3StorageManager
 
 
 def ensure_directory_exists(directory_path: str) -> None:
-    """Create directory if it doesn't exist"""
-    Path(directory_path).mkdir(parents=True, exist_ok=True)
+    """Create directory if it doesn't exist (no-op for S3 backend)."""
+    sm = get_storage_manager()
+    if not isinstance(sm, S3StorageManager):
+        Path(directory_path).mkdir(parents=True, exist_ok=True)
 
 
 def extract_csv_headers(file_path: Path) -> list[str]:
@@ -108,46 +111,50 @@ def get_storage_path(storage_type: str, user_id: int = None, audit_id: int = Non
         raise ValueError(f"Invalid storage_type: {storage_type}")
 
 
-def check_duplicate_file(storage_dir: str, original_filename: str) -> Tuple[bool, str | None]:
+def check_duplicate_file(storage_dir: str, original_filename: str, tenant_id: str | None = None) -> Tuple[bool, str | None]:
     """
     Check if a file with the same base name already exists in the storage directory.
     Excludes the last 9 characters (underscore + 8 character hash) from comparison.
 
-    Args:
-        storage_dir: Directory to check for duplicates
-        original_filename: The original filename to check
-
-    Returns:
-        Tuple of (is_duplicate: bool, existing_filename: str | None)
+    Works with both local filesystem and S3 backends.
     """
+    original_stem = Path(original_filename).stem
+    original_suffix = Path(original_filename).suffix
+
+    sm = get_storage_manager(tenant_id)
+    if isinstance(sm, S3StorageManager):
+        # Normalise to S3 key prefix (strip leading "storage/" if present)
+        prefix = storage_dir.lstrip("/")
+        if prefix.startswith("storage/"):
+            prefix = prefix[len("storage/"):]
+        if not prefix.endswith("/"):
+            prefix += "/"
+        existing_files = sm.list_files(prefix)
+        for f in existing_files:
+            name = Path(f["key"]).name
+            stem = Path(name).stem
+            suffix = Path(name).suffix
+            if suffix != original_suffix:
+                continue
+            base = stem[:-9] if len(stem) > 9 and stem[-9] == '_' else stem
+            if base == original_stem:
+                return True, name
+        return False, None
+
+    # Local filesystem path
     storage_path = Path(storage_dir)
     if not storage_path.exists():
         return False, None
 
-    original_stem = Path(original_filename).stem
-    original_suffix = Path(original_filename).suffix
-
-    # Check all files in the directory
     for existing_file in storage_path.iterdir():
         if existing_file.is_file():
-            existing_name = existing_file.name
             existing_stem = existing_file.stem
             existing_suffix = existing_file.suffix
-
-            # Check if suffix matches
             if existing_suffix != original_suffix:
                 continue
-
-            # Remove the last 9 characters (_xxxxxxxx) from the existing filename
-            # Format is: original_name_12345678.ext
-            if len(existing_stem) > 9 and existing_stem[-9] == '_':
-                base_existing_stem = existing_stem[:-9]
-            else:
-                base_existing_stem = existing_stem
-
-            # Compare base names
-            if base_existing_stem == original_stem:
-                return True, existing_name
+            base = existing_stem[:-9] if len(existing_stem) > 9 and existing_stem[-9] == '_' else existing_stem
+            if base == original_stem:
+                return True, existing_file.name
 
     return False, None
 

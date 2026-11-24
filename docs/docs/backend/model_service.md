@@ -2,24 +2,43 @@
 
 The Model Service provides AI/ML inference capabilities through separate microservice APIs. It supports multiple model types including LLMs, audio analysis models, and subject classification.
 
+The backend talks to model services in **two ways**:
+
+1. **MCP (Model Context Protocol) over SSE** — the preferred path. Each model
+   server exposes one or more named tools; the backend calls them through
+   `MCPClientManager`. Selected when a model's metadata has an `mcp_tool_name`
+   and an `http(s)://` `location`.
+2. **Legacy HTTP `POST /predict`** — fallback for model servers (or generative
+   LLMs via the Universal API) that do not advertise an MCP tool.
+
+Which path is taken is decided per model in
+[`run_model_inference()`](../../src/services/performance_service/inference_engine.py)
+— see [MCP Integration](#mcp-integration) below.
+
 ## Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    PHAWM Backend API                         │
-│                    (FastAPI - Port 8000)                     │
-└─────────────────────┬───────────────────────────────────────┘
-                      │
-    ┌─────────────────┼─────────────────┐
-    │                 │                 │
-    ▼                 ▼                 ▼
-┌─────────┐     ┌─────────┐      ┌─────────┐
-│   SAM   │     │Universal│      │  ANNIF  │
-│Port 8002│     │Port 8003│      │Port 8004│
-└─────────┘     └─────────┘      └─────────┘
+│         (FastAPI — 8000 single-tenant / 8001 multi-tenant)  │
+└───────┬─────────────────────────────────────────┬───────────┘
+        │  MCP (SSE) preferred  /  HTTP fallback   │  MCP (SSE)
+        ▼                                           ▼
+  ┌─────────────────────────────────┐      ┌─────────────────────┐
+  │        Model servers            │      │  Evaluation MCP      │
+  │  SAM 8002 · Universal 8003 ·    │      │  server  (8005)      │
+  │  ANNIF 8004  (LitServe + MCP)   │      │  evaluate_metric,    │
+  └─────────────────────────────────┘      │  list_available_…    │
+                                            └─────────────────────┘
 ```
 
-Each model service runs as a standalone [LitServe](https://github.com/Lightning-AI/LitServe) server.
+Each model service runs as a standalone [LitServe](https://github.com/Lightning-AI/LitServe) server. Model servers and the evaluation MCP server are **not** part of either Docker Compose file — they are started separately (see [Running All Services](#running-all-services)).
+
+> **Hostnames vs. ports.** Inside Docker the backend reaches the Universal LLM
+> server at the hostname `universal-llm-api:8003` (hardcoded fallback). For other
+> models the target is whatever is stored in the model's `location` field
+> (e.g. `http://sam-attachment-monitor:8002`). When running everything on the
+> host, use `localhost:<port>` in `location`.
 
 ---
 
@@ -127,12 +146,17 @@ python -m src.services.model_service.api.SAM.server
 
 #### Supported Providers & Models
 
-| Provider | Models |
+| Provider | Example model ids |
 |----------|--------|
-| OpenAI | `gpt-4`, `gpt-3.5-turbo`, `gpt-4-turbo` |
-| Anthropic | `claude-3-sonnet-20240229`, `claude-3-haiku-20240307`, `claude-3-opus-20240229` |
-| Google/Gemini | `gemini-pro`, `gemini-pro-vision` |
-| Groq | `mixtral-8x7b-32768`, `llama2-70b-4096` |
+| OpenAI | `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo` |
+| Anthropic | `claude-opus-4-8`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001` |
+| Google/Gemini | `gemini-1.5-pro`, `gemini-1.5-flash` |
+| Groq | `llama-3.1-70b-versatile`, `mixtral-8x7b-32768` |
+
+> Any model id LiteLLM understands works — the lists above are illustrative.
+> The provider is resolved from the model name by `_resolve_provider()`
+> (`gpt`/`openai` → openai, `claude`/`anthropic` → anthropic, `gemini`/`google`
+> → gemini, else openai), so name your models accordingly.
 
 #### Single Request Format
 
@@ -410,17 +434,133 @@ python -m src.services.model_service.api.ANNIF.server
 
 ---
 
+## MCP Integration
+
+The backend prefers MCP (over SSE) for model inference. MCP lets a model server
+expose **named tools** with declared input schemas, instead of a single opaque
+`POST /predict`.
+
+### How a model is routed to MCP vs. HTTP
+
+`run_model_inference()` decides per model, in this order:
+
+1. **MCP** — if the model's metadata has a non-empty `mcp_tool_name` **and** its
+   `location` starts with `http://` / `https://`. The backend calls
+   `mcp_tool_name` on the server at `location` via
+   `MCPClientManager.call_tool()`.
+2. **Universal LLM (HTTP)** — if `location == "with_api_key"` and the model is
+   generative (`model_type` set). Posts to `http://universal-llm-api:8003/predict`.
+3. **Legacy HTTP** — otherwise. Posts to `<location>/predict` (a `http://`
+   prefix is added if missing).
+
+The relevant model metadata fields:
+
+| Field | Meaning |
+|---|---|
+| `location` | MCP/HTTP base URL (`http://host:port`), or the sentinel `with_api_key` for the Universal LLM API |
+| `mcp_tool_name` | Name of the MCP tool to call (e.g. `predict_attachment`, `llm_inference`, `predict_subjects`). Empty ⇒ HTTP path |
+| `model_type` | Truthy ⇒ treated as a generative model (LLM) |
+| `task` / `output_context` | Used to special-case attachment (SAM) input shaping |
+
+For tenant-scoped runs the backend also injects `s3_bucket` (the tenant's bucket)
+and, for generative models, `api_key` + `model_provider` into the tool arguments.
+
+### Calling an MCP tool (client)
+
+The backend wraps the MCP SSE client in
+[`MCPClientManager`](../../src/services/utility_service/mcp_client.py):
+
+```python
+from src.services.utility_service.mcp_client import MCPClientManager
+
+client = MCPClientManager()
+result = await client.call_tool(
+    server_url="http://sam-attachment-monitor:8002",   # NO /sse suffix — added internally
+    tool_name="predict_attachment",
+    arguments={"s3_key": "audits/audit_1/input/file.wav", "model_type": "all"},
+)
+# result is a parsed dict. On failure: {"success": False, "error": "..."}
+```
+
+- The client connects to `<server_url>/sse`, initialises the session, calls the
+  tool, and parses the first `TextContent` item as JSON.
+- Default timeout is 60s. Connection/timeout errors are caught and returned as
+  `{"success": False, "error": ...}` rather than raised.
+- `list_tools(server_url)` returns the tools a server advertises — useful for
+  discovery/debugging.
+
+From synchronous code (e.g. the evaluation loop) use the bridge
+`run_mcp_tool_sync(server_url, tool_name, arguments)` in `inference_engine.py`,
+which runs the async call on a worker thread when an event loop is already running.
+
+### Exposing a tool from a model server
+
+A model server advertises tools via the MCP `list_tools` / `call_tool` handlers
+and serves them over SSE. The minimal shape (mirrors the evaluation MCP server,
+[`mcp_server.py`](../../src/services/performance_service/mcp_server.py)):
+
+```python
+from mcp.server import Server
+from mcp.server.sse import SseServerTransport
+from mcp.types import Tool, TextContent
+from starlette.applications import Starlette
+from starlette.routing import Route, Mount
+
+app = Server("my-model-service")
+
+@app.list_tools()
+async def list_tools():
+    return [Tool(
+        name="predict_attachment",
+        description="Predict attachment style from audio/text.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "s3_key": {"type": "string"},
+                "model_type": {"type": "string"},
+            },
+            "required": ["s3_key"],
+        },
+    )]
+
+@app.call_tool()
+async def call_tool(name: str, arguments: dict):
+    result = run_prediction(arguments)        # your logic
+    import json
+    return [TextContent(type="text", text=json.dumps(result, default=str))]
+
+# SSE transport — the backend client connects to /sse
+sse = SseServerTransport("/messages/")
+
+async def handle_sse(request):
+    async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
+        await app.run(streams[0], streams[1], app.create_initialization_options())
+
+starlette_app = Starlette(routes=[
+    Route("/sse", endpoint=handle_sse),
+    Mount("/messages/", app=sse.handle_post_message),
+])
+```
+
+> **Output contract.** Tools must return a list with a single `TextContent`
+> whose `text` is JSON. The backend's `merge_mcp_output()` flattens that JSON
+> into the result row (dropping `raw_output`, `raw_model_output`,
+> `subject_scores`), so emit flat, evaluation-ready keys
+> (`y_pred`, `y_pred_proba`, `predicted_subjects`, …).
+
+---
+
 ## ML Pipeline API (Main Backend)
 
 The main backend provides endpoints for managing model metadata, API keys, and datasets.
 
-**Base Path:** `/api/v1/pipeline`
+**Base Path:** `/pipeline`
 
 ### API Key Management
 
 #### Create API Key
 
-**Endpoint:** `POST /api/v1/pipeline/api-keys/`
+**Endpoint:** `POST /pipeline/api-keys/`
 
 ```json
 {
@@ -433,11 +573,11 @@ The main backend provides endpoints for managing model metadata, API keys, and d
 
 #### Update API Key
 
-**Endpoint:** `PUT /api/v1/pipeline/api-keys/{api_key_id}`
+**Endpoint:** `PUT /pipeline/api-keys/{api_key_id}`
 
 #### Delete API Key
 
-**Endpoint:** `DELETE /api/v1/pipeline/api-keys/{api_key_id}`
+**Endpoint:** `DELETE /pipeline/api-keys/{api_key_id}`
 
 ---
 
@@ -445,7 +585,7 @@ The main backend provides endpoints for managing model metadata, API keys, and d
 
 #### Create Model Metadata
 
-**Endpoint:** `POST /api/v1/pipeline/model-metadata/`
+**Endpoint:** `POST /pipeline/model-metadata/`
 
 ```json
 {
@@ -460,11 +600,11 @@ The main backend provides endpoints for managing model metadata, API keys, and d
 
 #### Get Model Metadata
 
-**Endpoint:** `GET /api/v1/pipeline/model-metadata/{model_id}`
+**Endpoint:** `GET /pipeline/model-metadata/{model_id}`
 
 #### List All Models
 
-**Endpoint:** `GET /api/v1/pipeline/model/`
+**Endpoint:** `GET /pipeline/model/`
 
 **Query Parameters:**
 - `skip` (int, default: 0): Pagination offset
@@ -472,11 +612,11 @@ The main backend provides endpoints for managing model metadata, API keys, and d
 
 #### Update Model Metadata
 
-**Endpoint:** `PUT /api/v1/pipeline/model/{model_id}`
+**Endpoint:** `PUT /pipeline/model/{model_id}`
 
 #### Delete Model
 
-**Endpoint:** `DELETE /api/v1/pipeline/model/{model_id}`
+**Endpoint:** `DELETE /pipeline/model/{model_id}`
 
 ---
 
@@ -484,7 +624,7 @@ The main backend provides endpoints for managing model metadata, API keys, and d
 
 #### Create Dataset with Input/Output
 
-**Endpoint:** `POST /api/v1/pipeline/dataset/metadata/`
+**Endpoint:** `POST /pipeline/dataset/metadata/`
 
 ```json
 {
@@ -507,63 +647,73 @@ The main backend provides endpoints for managing model metadata, API keys, and d
 
 #### Get Complete Dataset
 
-**Endpoint:** `GET /api/v1/pipeline/dataset/metadata/{dataset_id}`
+**Endpoint:** `GET /pipeline/dataset/metadata/{dataset_id}`
 
 #### Get Input Dataset
 
-**Endpoint:** `GET /api/v1/pipeline/dataset/input/{input_id}`
+**Endpoint:** `GET /pipeline/dataset/input/{input_id}`
 
 #### Get Output Dataset
 
-**Endpoint:** `GET /api/v1/pipeline/dataset/output/{output_id}`
+**Endpoint:** `GET /pipeline/dataset/output/{output_id}`
 
 #### Update Dataset
 
-**Endpoint:** `PUT /api/v1/pipeline/dataset/metadata/{dataset_id}`
+**Endpoint:** `PUT /pipeline/dataset/metadata/{dataset_id}`
 
 #### Update Full Dataset (with Input/Output)
 
-**Endpoint:** `PUT /api/v1/pipeline/dataset/metadata/{dataset_id}/all`
+**Endpoint:** `PUT /pipeline/dataset/metadata/{dataset_id}/all`
 
 #### Delete Dataset
 
-**Endpoint:** `DELETE /api/v1/pipeline/dataset/metadata/{dataset_id}`
+**Endpoint:** `DELETE /pipeline/dataset/metadata/{dataset_id}`
 
 *Note: This cascades and deletes associated input/output metadata.*
 
 #### Delete Input Dataset
 
-**Endpoint:** `DELETE /api/v1/pipeline/dataset/metadata/input/{input_id}`
+**Endpoint:** `DELETE /pipeline/dataset/metadata/input/{input_id}`
 
 #### Delete Output Dataset
 
-**Endpoint:** `DELETE /api/v1/pipeline/dataset/metadata/output/{output_id}`
+**Endpoint:** `DELETE /pipeline/dataset/metadata/output/{output_id}`
 
 ---
 
 ## Running All Services
 
-To run all model services together:
+The model servers and the evaluation MCP server run **outside** Docker Compose —
+start the ones you need in separate terminals alongside the backend.
 
 ```bash
 # Terminal 1: Main API
+#   single-tenant:
 uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+#   multi-tenant (uses the multi-tenant DB/env — see the setup guide):
+ENV_FILE=deploy/.env.multi-tenant uvicorn src.api.main:app --host 0.0.0.0 --port 8001
 
-# Terminal 2: SAM
+# Terminal 2: SAM model server (port 8002)
 python -m src.services.model_service.api.SAM.server
 
-# Terminal 3: Universal LLM
+# Terminal 3: Universal LLM (port 8003)
 python -m src.services.model_service.api.Universal.server
 
-# Terminal 4: ANNIF
+# Terminal 4: ANNIF (port 8004)
 python -m src.services.model_service.api.ANNIF.server
+
+# Terminal 5: Evaluation MCP server (port 8005) — needed for MCP-based metric runs
+python -m src.services.performance_service.mcp_server
 ```
 
-Or use the combined runner (if available):
+A model's `location` field must point at wherever its server is actually
+reachable from the backend:
 
-```bash
-python -m src.services.model_service.api.Universal.server
-```
+- **All on the host:** `http://localhost:8002` (SAM), `http://localhost:8004`
+  (ANNIF), etc.
+- **Backend in Docker, servers on host:** `http://host.docker.internal:8002`.
+- **Everything in Docker (separate compose/network):** the service hostname,
+  e.g. `http://sam-attachment-monitor:8002`.
 
 ---
 

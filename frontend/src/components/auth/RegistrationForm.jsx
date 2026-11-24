@@ -43,9 +43,10 @@ const RegistrationForm = () => {
     }
 
     try {
+      const normalizedEmail = formData.email.trim().toLowerCase();
       await authAPI.signup({
-        username: formData.email,
-        email: formData.email,
+        username: normalizedEmail,
+        email: normalizedEmail,
         password: formData.password,
         full_name: formData.full_name,
       });

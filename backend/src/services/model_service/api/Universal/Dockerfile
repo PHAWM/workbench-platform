@@ -22,5 +22,5 @@ ENV PYTHONPATH=/app
 
 # Change to the Universal directory and run the server
 WORKDIR /app/src/services/model_service/api/Universal
-CMD ["python", "server.py"]
+CMD ["uvicorn", "server:starlette_app", "--host", "0.0.0.0", "--port", "8003"]
 

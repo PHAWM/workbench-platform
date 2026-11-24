@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ChevronUp, ChevronDown, ArrowLeft, X } from 'lucide-react';
 import { Navigation } from '../components/navigation/Navigation';
 import { useParams, useNavigate } from 'react-router-dom';
+import { tenantPath } from '../utils/tenant';
 import { auditOutcomeAPI } from '../api/apiService';
 import { createAuditHandlers } from '../handlers/auditHandlers';
 import { useAuditData } from '../hooks/useAuditData';
@@ -10,11 +11,13 @@ import { useApi } from '../context/apiContext';
 import { useToast } from '../hooks/useToast';
 import { useOnboarding } from '../context/onboardingContext';
 import { submitAuditOutcome } from '../handlers/auditOutcomeHandlers';
+import { useAuditTimer } from '../hooks/useAuditTimer';
 
 const AuditOutcomeInterface = () => {
   const [currentPage, setCurrentPage] = useState('audit-outcome');
   const { auditId } = useParams();
   const navigate = useNavigate();
+  useAuditTimer(auditId);
   const toast = useToast();
   const { checkAndStartOnboarding } = useOnboarding();
 
@@ -108,8 +111,7 @@ const AuditOutcomeInterface = () => {
       setShowConfirmModal(false);
       toast.success('Audit outcome submitted successfully!');
       isAuditReadOnly("Submitted");
-      // Reset after showing success - force absolute navigation to dashboard
-      window.location.href = '/dashboard';
+      window.location.href = (import.meta.env.BASE_URL || '/') + 'dashboard';
     } else {
       toast.error('Error submitting audit. Please try again.');
     }
@@ -290,7 +292,7 @@ const AuditOutcomeInterface = () => {
             
             <div className="flex justify-between">
               <button
-                onClick={() => navigate(`/performance/${auditId}`)}
+                onClick={() => navigate(tenantPath(`/performance/${auditId}`))}
                 className="flex items-center gap-2 hover:bg-purple-200 px-4 py-3 rounded-full text-base font-semibold transition-colors border-2 border-purple-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-purple-100">
                 <ArrowLeft/>Back to Performance Analysis
               </button>

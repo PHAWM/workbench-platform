@@ -1,17 +1,19 @@
+from datetime import datetime, timezone
+
 from sqlmodel import (
-        SQLModel, 
-        Field, 
-        Relationship, 
-        Column, 
+        SQLModel,
+        Field,
+        Relationship,
+        Column,
         JSON
     )
 
 from sqlalchemy.dialects.postgresql import JSONB
 
 from typing import (
-        List, 
-        Optional, 
-        Dict, 
+        List,
+        Optional,
+        Dict,
         Any
     )
 
@@ -23,6 +25,31 @@ class MappingAuditUser(SQLModel, table=True):
     user_id: UUID | None = Field(default=None, ondelete="CASCADE", foreign_key="user.id")
     audit_id: int | None = Field(default=None, ondelete="CASCADE", foreign_key="audit.id")
     roles_id: int | None = Field(default=None, ondelete="CASCADE", foreign_key="auditroles.id")
+    started_at: datetime | None = Field(default=None, description="When this user first opened the audit")
+    submitted_at: datetime | None = Field(default=None, description="When this user submitted their audit evaluation")
+    duration_seconds: int | None = Field(default=None, description="Wall-clock seconds from started_at to submitted_at")
+    active_seconds: int = Field(default=0, description="Accumulated active on-page seconds from session chunks")
+
+
+class AuditSessionChunk(SQLModel, table=True):
+    """One active-time chunk sent by the frontend for a user's audit session."""
+    id: int | None = Field(default=None, primary_key=True)
+    user_audit_id: int = Field(ondelete="CASCADE", foreign_key="mappingaudituser.id")
+    duration_seconds: int = Field(description="Active seconds measured by the frontend for this chunk")
+    recorded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class AuditSessionChunkCreate(SQLModel):
+    duration_seconds: int
+
+
+class AuditTimingResponse(SQLModel):
+    user_audit_id: int
+    audit_id: int
+    started_at: datetime | None
+    submitted_at: datetime | None
+    duration_seconds: int | None
+    active_seconds: int
     
 class MappingAuditApplication(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
@@ -48,6 +75,17 @@ class Application(SQLModel, table=True):
         HttpUrl(v)
         return v
     
+class ApplicationCreate(SQLModel):
+    name: str
+    description: str
+    organisation: str
+    url: str
+    access_type: int = 0
+    testing_evaluation: Dict[str, Any] = {}
+    deployment: Dict[str, Any] = {}
+    business_case: str = ""
+    legal_framework: str = ""
+
 class ApplicationUpdate(SQLModel):
     name: str | None = None
     description: str | None = None

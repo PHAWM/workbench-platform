@@ -1,9 +1,9 @@
 import uuid
 import os
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import FileResponse
 from sqlmodel import col, delete, func, select
 
@@ -120,7 +120,11 @@ def update_password_me(
 
 
 @router.post("/signup", response_model=UserPublic)
-def register_user(session: SessionDep, user_in: UserRegister) -> Any:
+def register_user(
+    session: SessionDep,
+    user_in: UserRegister,
+    x_tenant_id: Annotated[str, Header(description="Tenant identifier for the organisation this user belongs to.")],
+) -> Any:
     """
     Create new user without the need to be logged in.
     """
@@ -141,14 +145,19 @@ def register_user(session: SessionDep, user_in: UserRegister) -> Any:
     # Send verification email
     send_verification_email(
         email_to=user.email,
-        token=verification_token.verification_token
+        token=verification_token.verification_token,
+        tenant_id=x_tenant_id,
     )
 
     return user
 
 
-@router.get("/verify-email", response_model=Message)
-def verify_email(token: str, session: SessionDep) -> Any:
+@router.post("/verify-email", response_model=Message)
+def verify_email(
+    token: str,
+    session: SessionDep,
+    x_tenant_id: Annotated[str, Header(description="Tenant identifier — must match the tenant the user registered under.")],
+) -> Any:
     """
     Verify user's email address using the verification token.
     """
@@ -164,7 +173,11 @@ def verify_email(token: str, session: SessionDep) -> Any:
 
 
 @router.post("/accept-invite", response_model=AcceptInviteResponse)
-def accept_invite(session: SessionDep, body: AcceptInvite) -> Any:
+def accept_invite(
+    session: SessionDep,
+    body: AcceptInvite,
+    x_tenant_id: Annotated[str, Header(description="Tenant identifier — must match the tenant the invitation was issued from.")],
+) -> Any:
     """
     Accept a user invitation using the invitation token.
     Validates the token and returns whether the password has been set.
@@ -185,7 +198,11 @@ def accept_invite(session: SessionDep, body: AcceptInvite) -> Any:
 
 
 @router.post("/set-password-with-invite", response_model=Message)
-def set_password_with_invite(session: SessionDep, body: SetPasswordWithInvite) -> Any:
+def set_password_with_invite(
+    session: SessionDep,
+    body: SetPasswordWithInvite,
+    x_tenant_id: Annotated[str, Header(description="Tenant identifier — must match the tenant the invitation was issued from.")],
+) -> Any:
     """
     Set user password using invitation token.
     This accepts the invitation, sets the password, and marks the email as verified.
@@ -204,7 +221,11 @@ def set_password_with_invite(session: SessionDep, body: SetPasswordWithInvite) -
 
 
 @router.post("/forgot-password", response_model=Message)
-def forgot_password(session: SessionDep, body: ForgotPassword) -> Any:
+def forgot_password(
+    session: SessionDep,
+    body: ForgotPassword,
+    x_tenant_id: Annotated[str, Header(description="Tenant identifier — required to scope the password reset to the correct user account.")],
+) -> Any:
     """
     Request password reset email.
     Sends an email with a password reset link to the user's email address.
@@ -220,7 +241,8 @@ def forgot_password(session: SessionDep, body: ForgotPassword) -> Any:
         # Send password reset email
         send_password_reset_email(
             email_to=body.email,
-            token=reset_token.reset_token
+            token=reset_token.reset_token,
+            tenant_id=x_tenant_id,
         )
 
     return Message(
@@ -229,7 +251,11 @@ def forgot_password(session: SessionDep, body: ForgotPassword) -> Any:
 
 
 @router.post("/reset-password", response_model=Message)
-def reset_password(session: SessionDep, body: ResetPassword) -> Any:
+def reset_password(
+    session: SessionDep,
+    body: ResetPassword,
+    x_tenant_id: Annotated[str, Header(description="Tenant identifier — must match the tenant the reset token was issued for.")],
+) -> Any:
     """
     Reset password using the reset token from email.
     """

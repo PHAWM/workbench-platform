@@ -1,0 +1,22 @@
+<domain> {
+
+  handle /api/* {
+    reverse_proxy api:8080
+  }
+
+  handle_path /workbench/phawm_sam* {
+    reverse_proxy phawm-sam-frontend:3000
+  }
+
+  handle_path /workbench/demo* {
+    reverse_proxy demo-frontend:3000
+  }
+
+  handle_path /workbench/phawm_annif* {
+    reverse_proxy phawm-annif-frontend:3000
+  }
+
+  handle_path /workbench/docs/* {
+    reverse_proxy docs:8000
+  }
+}

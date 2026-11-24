@@ -1,6 +1,10 @@
 # AI Application Overview
 
-<img src="media/page_ai_application_overview.png" alt="Image - AI Application Overview" style="display: block; margin: 0 auto">
+<div style="position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; max-width: 800px; margin: 0 auto 1.5em;">
+  <iframe src="https://www.youtube.com/embed/bB1HbmM7GXE?start=107" title="PHAWM Workbench — AI Application Overview" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"></iframe>
+</div>
+
+<img src="/media/page_ai_application_overview.png" alt="Image - AI Application Overview" style="display: block; margin: 0 auto">
 
 The **AI Application Overview** has been designed to provide you with all the information that you might need to undertake an audit.  
 

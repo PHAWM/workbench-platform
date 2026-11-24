@@ -41,18 +41,21 @@ def send_email(
         logger.error(f"Failed to send email to {email_to}: {str(e)}")
         return False
 
-def send_verification_email(email_to: str, token: str) -> bool:
+def send_verification_email(email_to: str, token: str, tenant_id: Optional[str] = None) -> bool:
     """
     Send email verification link to user
 
     Args:
         email_to: User's email address
         token: Verification token
+        tenant_id: Tenant schema name — appended as ?tenant_id= so the frontend
+                   knows which X-Tenant-ID to send on subsequent requests
 
     Returns:
         True if email was sent successfully
     """
-    verification_link = f"{settings.FRONTEND_URL}/verify-email?token={token}"
+    tenant_prefix = f"/{tenant_id}" if tenant_id else ""
+    verification_link = f"{settings.FRONTEND_URL}{tenant_prefix}/verify-email?token={token}"
 
     subject = f"{settings.PROJECT_NAME} - Verify your email"
 
@@ -123,7 +126,7 @@ def send_verification_email(email_to: str, token: str) -> bool:
     return send_email(email_to, subject, html_content, text_content)
 
 
-def send_invitation_email(email_to: str, token: str, inviter_name: Optional[str] = None) -> bool:
+def send_invitation_email(email_to: str, token: str, inviter_name: Optional[str] = None, tenant_id: Optional[str] = None) -> bool:
     """
     Send invitation email to user with password setup link
 
@@ -131,11 +134,14 @@ def send_invitation_email(email_to: str, token: str, inviter_name: Optional[str]
         email_to: User's email address
         token: Invitation token
         inviter_name: Name of the person who sent the invitation (optional)
+        tenant_id: Tenant schema name — appended as ?tenant_id= so the frontend
+                   knows which X-Tenant-ID to send on login after password setup
 
     Returns:
         True if email was sent successfully
     """
-    invitation_link = f"{settings.FRONTEND_URL}/set-password?token={token}"
+    tenant_prefix = f"/{tenant_id}" if tenant_id else ""
+    invitation_link = f"{settings.FRONTEND_URL}{tenant_prefix}/accept-invite?token={token}"
 
     subject = f"{settings.PROJECT_NAME} - You've been invited!"
 
@@ -208,18 +214,84 @@ def send_invitation_email(email_to: str, token: str, inviter_name: Optional[str]
     return send_email(email_to, subject, html_content, text_content)
 
 
-def send_password_reset_email(email_to: str, token: str) -> bool:
+def send_audit_notification_email(
+    email_to: str,
+    audit_name: str,
+    inviter_name: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+) -> bool:
+    """
+    Notify an already-registered user they have been added to an audit.
+    No token needed — they log in directly.
+    """
+    inviter_text = f" by {inviter_name}" if inviter_name else ""
+    tenant_prefix = f"/{tenant_id}" if tenant_id else ""
+    login_link = f"{settings.FRONTEND_URL}{tenant_prefix}/login"
+    subject = f"{settings.PROJECT_NAME} - You've been added to an audit"
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+            .button {{
+                display: inline-block; padding: 12px 24px;
+                background-color: #007bff; color: #ffffff !important;
+                text-decoration: none; border-radius: 4px; margin: 20px 0;
+            }}
+            .footer {{
+                margin-top: 30px; padding-top: 20px;
+                border-top: 1px solid #ddd; font-size: 12px; color: #666;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h2>You've Been Added to an Audit</h2>
+            <p>You have been invited{inviter_text} to participate in the audit
+            <strong>{audit_name}</strong> on {settings.PROJECT_NAME}.</p>
+            <p>Log in to your account to get started:</p>
+            <a href="{login_link}" class="button">Go to {settings.PROJECT_NAME}</a>
+            <p>Or copy this link: {login_link}</p>
+            <div class="footer">
+                <p>If you didn't expect this, please contact your audit instigator.</p>
+                <p>&copy; {settings.PROJECT_NAME}</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    text_content = f"""
+    You've Been Added to an Audit
+
+    You have been invited{inviter_text} to participate in the audit '{audit_name}' on {settings.PROJECT_NAME}.
+
+    Log in at: {login_link}
+
+    If you didn't expect this, please contact your audit instigator.
+    """
+
+    return send_email(email_to, subject, html_content, text_content)
+
+
+def send_password_reset_email(email_to: str, token: str, tenant_id: Optional[str] = None) -> bool:
     """
     Send password reset link to user
 
     Args:
         email_to: User's email address
         token: Password reset token
+        tenant_id: Tenant schema name — appended as ?tenant_id= so the frontend
+                   knows which X-Tenant-ID to send on login after the reset
 
     Returns:
         True if email was sent successfully
     """
-    reset_link = f"{settings.FRONTEND_URL}/reset-password?token={token}"
+    tenant_prefix = f"/{tenant_id}" if tenant_id else ""
+    reset_link = f"{settings.FRONTEND_URL}{tenant_prefix}/reset-password?token={token}"
 
     subject = f"{settings.PROJECT_NAME} - Reset your password"
 

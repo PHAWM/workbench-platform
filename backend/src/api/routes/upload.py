@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from typing import List
 
 from src.api.deps import (
-    SessionDep, get_current_user
+    SessionDep, get_current_user, get_current_tenant_id
 )
 
 from src.models import *
@@ -19,7 +19,8 @@ def upload_dataset(
     file: UploadFile,
     audit_id: int,
     session: SessionDep,
-    current_user = Depends(get_current_user)
+    current_user = Depends(get_current_user),
+    tenant_id: str | None = Depends(get_current_tenant_id)
 ):
     """Upload a dataset file to the evaluation system"""
     try:
@@ -27,7 +28,8 @@ def upload_dataset(
             file=file,
             audit_id=audit_id,
             current_user_id=current_user.id,
-            session=session
+            session=session,
+            tenant_id=tenant_id
         )
         return JSONResponse(status_code=200, content=result)
     except HTTPException:
@@ -43,7 +45,8 @@ def upload_multiple_datasets(
     files: List[UploadFile],
     audit_id: int,
     session: SessionDep,
-    current_user = Depends(get_current_user)
+    current_user = Depends(get_current_user),
+    tenant_id: str | None = Depends(get_current_tenant_id)
 ):
     """Upload multiple dataset files including metadata.csv"""
     try:
@@ -51,7 +54,8 @@ def upload_multiple_datasets(
             files=files,
             audit_id=audit_id,
             current_user_id=current_user.id,
-            session=session
+            session=session,
+            tenant_id=tenant_id
         )
         return JSONResponse(status_code=200, content=result)
     except HTTPException:
@@ -64,18 +68,20 @@ def upload_multiple_datasets(
 
 @router.post("/audit/{audit_id}/input")
 def upload_audit_input(
-    file: UploadFile,
+    files: List[UploadFile],
     audit_id: int,
     session: SessionDep,
-    current_user = Depends(get_current_user)
+    current_user = Depends(get_current_user),
+    tenant_id: str | None = Depends(get_current_tenant_id)
 ):
-    """Upload input data for an audit (audit instigator)"""
+    """Upload input files for an audit. Include metadata.csv to auto-register features and set dataset location."""
     try:
         result = upload_service.upload_audit_input_comprehensive(
-            file=file,
+            files=files,
             audit_id=audit_id,
             current_user_id=current_user.id,
-            session=session
+            session=session,
+            tenant_id=tenant_id
         )
         return JSONResponse(status_code=200, content=result)
     except HTTPException:
@@ -88,14 +94,16 @@ def upload_audit_input(
 def list_uploaded_datasets(
     audit_id: int,
     session: SessionDep,
-    current_user = Depends(get_current_user)
+    current_user = Depends(get_current_user),
+    tenant_id: str | None = Depends(get_current_tenant_id)
 ):
     """List all uploaded dataset files for a specific audit and user"""
     try:
         result = upload_service.list_uploaded_datasets_comprehensive(
             audit_id=audit_id,
             current_user_id=current_user.id,
-            session=session
+            session=session,
+            tenant_id=tenant_id
         )
         return JSONResponse(status_code=200, content=result)
     except HTTPException:
@@ -108,14 +116,16 @@ def list_uploaded_datasets(
 def list_audit_files(
     audit_id: int,
     session: SessionDep,
-    current_user = Depends(get_current_user)
+    current_user = Depends(get_current_user),
+    tenant_id: str | None = Depends(get_current_tenant_id)
 ):
     """List all input files for a specific audit"""
     try:
         result = upload_service.list_audit_files_comprehensive(
             audit_id=audit_id,
             current_user_id=current_user.id,
-            session=session
+            session=session,
+            tenant_id=tenant_id
         )
         return JSONResponse(status_code=200, content=result)
     except HTTPException:
@@ -129,7 +139,8 @@ def delete_dataset_file(
     audit_id: int,
     files: UploadFileDelete,
     session: SessionDep,
-    current_user = Depends(get_current_user)
+    current_user = Depends(get_current_user),
+    tenant_id: str | None = Depends(get_current_tenant_id)
 ):
     """Delete an uploaded dataset file for a specific audit and user"""
     try:
@@ -137,7 +148,8 @@ def delete_dataset_file(
             audit_id=audit_id,
             filename=files.filename,
             current_user_id=current_user.id,
-            session=session
+            session=session,
+            tenant_id=tenant_id
         )
         return JSONResponse(status_code=200, content=result)
     except HTTPException:
@@ -153,7 +165,8 @@ def view_audit_file(
     audit_id: int,
     filename: str,
     session: SessionDep,
-    current_user = Depends(get_current_user)
+    current_user = Depends(get_current_user),
+    tenant_id: str | None = Depends(get_current_tenant_id)
 ):
     """View/download an audit input file or results.csv"""
     try:
@@ -161,7 +174,8 @@ def view_audit_file(
             audit_id=audit_id,
             filename=filename,
             current_user_id=current_user.id,
-            session=session
+            session=session,
+            tenant_id=tenant_id
         )
         return FileResponse(
             path=str(file_path),

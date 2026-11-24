@@ -43,3 +43,4 @@ Batch Keyword Accuracy,batch_keyword_accuracy
 Performance Summary,performance_summary
 Classification Summary,classification_summary
 Regression Summary,regression_summary
+Faithfulness,faithfulness

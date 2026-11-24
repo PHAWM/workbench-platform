@@ -741,9 +741,16 @@ Events are scoped to specific audits and users through the `MappingAuditUser` re
 
 ### 16. Get Features
 
-**Endpoint:** `GET /events/features`
+**Endpoint:** `GET /events/features/underlying/{audit_id}`
 
-**Description:** Retrieves all available underlying features.
+**Description:** Retrieves the underlying features available for an audit. Features
+are derived from the audit's `DatasetMetadata` (the input files under
+`storage/audits/audit_{audit_id}/input/`), so they are scoped to a single audit
+rather than global.
+
+**Path Parameters:**
+
+- `audit_id` (int): ID of the audit whose underlying features to list
 
 **Response:**
 ```json

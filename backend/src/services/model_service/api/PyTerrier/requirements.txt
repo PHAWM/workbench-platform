@@ -1,0 +1,7 @@
+mcp[cli]>=1.9.0
+starlette==0.46.2
+uvicorn==0.34.3
+python-terrier==0.10.0
+pandas
+boto3>=1.35.0
+httpx==0.28.1

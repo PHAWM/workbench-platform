@@ -184,7 +184,7 @@ export const createAuditorProfileHandlers = ({
   const handleLogout = async () => {
     try {
       await logout();
-      window.location.href = '/login';
+      window.location.href = (import.meta.env.BASE_URL || '/') + 'login';
     } catch (error) {
       console.error('Logout failed:', error);
     }

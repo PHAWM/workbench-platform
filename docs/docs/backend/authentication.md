@@ -4,6 +4,8 @@
 
 The Authentication API provides secure login, password recovery, and password reset functionality. It implements OAuth2-compatible token-based authentication using JWT tokens with configurable expiration times.
 
+The platform is multi-tenant. Each tenant user must identify their organisation on login via the `X-Tenant-ID` header. The issued JWT embeds the tenant context so no further headers are needed on subsequent requests. See [multi_tenancy.md](multi_tenancy.md) for the full tenancy model.
+
 **Base Path:** `/` (no prefix)
 
 **Authentication:** Login endpoint provides tokens; password recovery/reset endpoints require valid tokens or reset tokens
@@ -20,16 +22,32 @@ The Authentication API provides secure login, password recovery, and password re
 
 **Content-Type:** `application/x-www-form-urlencoded`
 
+**Headers:**
+
+| Header | Required | Description |
+|---|---|---|
+| `X-Tenant-ID` | Yes (tenant users) | Tenant identifier, e.g. `uni_glasgow`. Omit only for superuser login. |
+
 **Request Body (Form Data):**
 ```
 username=user@example.com
 password=userpassword
 ```
 
-**Request Parameters:**
+**Tenant user example:**
+```bash
+curl -X POST "/login/access-token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -H "X-Tenant-ID: uni_glasgow" \
+  -d "username=user@uni-glasgow.ac.uk&password=userpassword"
+```
 
-- `username` (str, required): User's email address
-- `password` (str, required): User's password
+**Superuser example (no tenant header):**
+```bash
+curl -X POST "/login/access-token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=admin@platform.com&password=adminpassword"
+```
 
 **Response:**
 ```json
@@ -39,32 +57,38 @@ password=userpassword
 }
 ```
 
+The JWT payload contains:
+- `sub` — user UUID
+- `tid` — tenant schema name (absent for superusers)
+- `exp` — expiry timestamp
+
 **Status Codes:**
 
 - `200`: Successfully authenticated, token returned
-- `400`: Invalid credentials, inactive user, or unverified email
+- `400`: Invalid credentials, inactive user, unverified email, unknown tenant, or missing `X-Tenant-ID` for a non-superuser
 
 **Error Responses:**
 ```json
-{
-  "detail": "Incorrect email or password"
-}
+{ "detail": "Incorrect email or password" }
 ```
-
 ```json
-{
-  "detail": "Inactive user"
-}
+{ "detail": "Inactive user" }
 ```
-
 ```json
-{
-  "detail": "User not verified. Please check your email."
-}
+{ "detail": "User not verified. Please check your email." }
+```
+```json
+{ "detail": "Unknown tenant" }
+```
+```json
+{ "detail": "Tenant is inactive" }
+```
+```json
+{ "detail": "X-Tenant-ID header required for non-superuser login" }
 ```
 
 **Usage:**
-The returned access token should be included in subsequent API requests using the Authorization header:
+The returned access token must be included in all subsequent API requests. No `X-Tenant-ID` header is needed after login — the tenant is read from the token automatically.
 ```
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```

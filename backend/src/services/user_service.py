@@ -5,7 +5,36 @@ from datetime import datetime, timezone
 from sqlmodel import Session, select
 
 from src.core.security import get_password_hash, verify_password
-from src.models import User, UserCreate, UserUpdate, EmailVerification, UserInvitation, PasswordResetToken
+from src.models import User, UserCreate, UserUpdate, EmailVerification, UserInvitation, PasswordResetToken, UserRoles
+from src.models.users import TenantAdminCreate
+
+
+def create_tenant_admin(*, session: Session, admin_in: TenantAdminCreate) -> User:
+    """
+    Create the first user in a tenant schema and grant them tenant_admin permissions.
+    Called by the superuser immediately after provisioning the tenant schema.
+    The session must already be scoped to the tenant schema.
+    """
+    user_create = UserCreate(
+        email=admin_in.email,
+        full_name=admin_in.full_name,
+        username=admin_in.username,
+        password=admin_in.password,
+        organisation=admin_in.organisation,
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+    )
+    user = create_user(session=session, user_create=user_create)
+
+    role = UserRoles(
+        user_id=user.id,
+        permissions={"tenant_admin": True},
+    )
+    session.add(role)
+    session.commit()
+    session.refresh(user)
+    return user
 
 
 def create_user(*, session: Session, user_create: UserCreate) -> User:
@@ -155,8 +184,10 @@ def set_password_with_invitation(*, session: Session, token: str, password: str)
     if not user:
         return False
 
-    # Set the password
+    # Set the password and activate the account
     user.hashed_password = get_password_hash(password)
+    user.is_active = True
+    user.is_verified = True
 
     # Mark invitation as used
     invitation.invitation_used = True

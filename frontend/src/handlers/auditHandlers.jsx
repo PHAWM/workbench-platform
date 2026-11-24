@@ -200,6 +200,7 @@ export const createAuditHandlers = (auditId, updateState, updateModals, updatePr
             payload.metric_values = buildQualitativeMetricValues(
               qualitativeFormData,
               availableUnderlyingFeatures,
+              availableTargetFeatures,
               featureNameToIdMap
             );
           }
@@ -260,6 +261,16 @@ export const createAuditHandlers = (auditId, updateState, updateModals, updatePr
     try {
       const metricType = metricWithEvents.type;
 
+      console.log('[metric-create] metricWithEvents going into handler:', {
+        type: metricType,
+        threshold: metricWithEvents.threshold,
+        underlyingFeatures: metricWithEvents.underlyingFeatures,
+        targetFeatures: metricWithEvents.targetFeatures,
+        scalePointsArray: metricWithEvents.scalePointsArray,
+        featureRanges: metricWithEvents.featureRanges,
+        events: metricWithEvents.events,
+      });
+
       // Step 1: Detect and create new features FIRST, get the feature ID mappings
       // console.log('🚀 Starting feature creation process...');
       const { createdFeatures, featureNameToIdMap } = await detectAndCreateNewFeatures(
@@ -288,6 +299,7 @@ export const createAuditHandlers = (auditId, updateState, updateModals, updatePr
         metricWithEvents.metric_values = buildQualitativeMetricValues(
           metricWithEvents,
           availableUnderlyingFeatures,
+          availableTargetFeatures,
           featureNameToIdMap
         );
       }
@@ -295,7 +307,7 @@ export const createAuditHandlers = (auditId, updateState, updateModals, updatePr
       // Step 3: Build the API payload with the updated metric_values
       const apiPayload = buildMetricApiPayload(metricWithEvents, auditId, metricType);
 
-      // console.log('Final API payload with feature IDs:', apiPayload);
+      console.log('[metric-create] Final API payload:', JSON.stringify(apiPayload, null, 2));
 
       // Step 4: Create the metric
       if (metricType === 'quantitative') {

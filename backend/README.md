@@ -20,20 +20,16 @@ Backend API for the Participatory Harm Auditing Workbenches and Methodologies (P
 ### Installation
 
 1. Clone the repository
-   ```bash
-   git clone https://www.github.com/PHAWM/workbench-platoform.git]
-   cd bakcend
-   ```
-3. Create a virtual environment:
+2. Create a virtual environment:
    ```bash
    python -m venv .venv
    source .venv/bin/activate
    ```
-4. Install dependencies:
+3. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
-5. Copy `.env.example` to `.env` and configure your environment variables
+4. Copy `.env.example` to `.env` and configure your environment variables
 
 ### Running Locally
 

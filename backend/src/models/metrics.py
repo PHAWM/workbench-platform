@@ -134,8 +134,8 @@ class QuantitativeMetricCreate(SQLModel):
     description: str
     reason: str
     formula: str
-    metric_values: List[MetricValueCreate] = MetricValueCreate
-    event_mappings: List[MetricMappingCreate] = MetricMappingCreate
+    metric_values: List[MetricValueCreate] = []
+    event_mappings: List[MetricMappingCreate] = []
 
 class QuantitativeMetricUpdate(SQLModel):
     """Model for updating a complete quantitative metric with values"""
@@ -152,8 +152,8 @@ class QualitativeMetricCreate(SQLModel):
     description: str
     reason: str
     definition: str
-    metric_values: List[MetricValueCreate] = MetricValueCreate
-    event_mappings: List[MetricMappingCreate] = MetricMappingCreate
+    metric_values: List[MetricValueCreate] = []
+    event_mappings: List[MetricMappingCreate] = []
 
 class QualitativeMetricUpdate(SQLModel):
     """Model for updating a complete qualitative metric with values"""
@@ -207,7 +207,7 @@ class CompleteMetricResponse(SQLModel):
     metric_type: str
     quantitative_details: Optional[QuantitativeMetricDetail] = None
     qualitative_details: Optional[QualitativeMetricDetail] = None
-    created_values: List[MetricValuesDetail] = MetricValuesDetail
+    created_values: List[MetricValuesDetail] = []
     created_mappings: List[int] = []  # List of mapping IDs
     total_values_created: int
     total_mappings_created: int
@@ -221,8 +221,8 @@ class CompleteMetricUpdateResponse(SQLModel):
     metric_type: str
     quantitative_details: Optional[QuantitativeMetricDetail] = None
     qualitative_details: Optional[QualitativeMetricDetail] = None
-    updated_values: List[MetricValuesDetail] = MetricValuesDetail
-    created_values: List[MetricValuesDetail] = MetricValuesDetail
+    updated_values: List[MetricValuesDetail] = []
+    created_values: List[MetricValuesDetail] = []
     deleted_values: List[int] = []  # List of deleted value IDs
     total_values_updated: int
     total_values_created: int

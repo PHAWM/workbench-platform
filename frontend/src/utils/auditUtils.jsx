@@ -157,7 +157,15 @@ export const buildEventApiPayload = (eventData, auditId, changes = null, eventCa
       const categoryId = getCategoryId(category);
       return categoryId ? { category_id: categoryId } : null;
     }).filter(c => c !== null) || [],
-    metrics: eventData.selectedMetricIds?.map(metricId => ({ metric_id: metricId, values_id: null })) || []
+    metrics: eventData.selectedMetricPairs?.length
+      // Preferred path — newly-created metrics carry the values_id returned
+      // from their POST so the event<->metric_value mapping is preserved.
+      ? eventData.selectedMetricPairs.map(p => ({
+          metric_id: p.metric_id,
+          values_id: p.values_id ?? null,
+        }))
+      // Fallback — older callers only pass metric IDs.
+      : (eventData.selectedMetricIds?.map(metricId => ({ metric_id: metricId, values_id: null })) || []),
   };
 };
 
@@ -167,45 +175,34 @@ export const buildMetricApiPayload = (metricData, auditId, metricType) => {
     name: metricData.name,
     description: metricData.description,
     reason: metricData.reason,
-    metric_values: metricData.metric_values || []
+    metric_values: metricData.metric_values || [],
   };
 
-  // Extract features from metric_values for the top-level features field
-  let features = [];
-  if (metricData.metric_values && metricData.metric_values.length > 0) {
-    const firstMetricValue = metricData.metric_values[0];
-
-    // For qualitative metrics, features are in the features field
-    if (firstMetricValue.features && Array.isArray(firstMetricValue.features)) {
-      features = firstMetricValue.features.map(f => f.feature_id);
+  // Build event_mappings consistently: pull event_id off the event object.
+  const eventMappings = (metricData.events || metricData.selectedEventIds || []).map(event => {
+    if (typeof event === 'object' && event !== null) {
+      const id = event.id ?? event.event_id;
+      return id != null ? { event_id: parseInt(id) } : null;
     }
-    // For quantitative metrics, features are in underlying_features and target_features
-    else if (firstMetricValue.underlying_features || firstMetricValue.target_features) {
-      const underlyingFeatureIds = firstMetricValue.underlying_features?.map(f => f.feature_id) || [];
-      const targetFeatureIds = firstMetricValue.target_features?.map(f => f.feature_id) || [];
-      features = [...underlyingFeatureIds, ...targetFeatureIds];
+    if (typeof event === 'number' || (typeof event === 'string' && /^\d+$/.test(event))) {
+      return { event_id: parseInt(event) };
     }
-  }
+    return null;
+  }).filter(m => m !== null);
 
   if (metricType === 'quantitative') {
     return {
       ...basePayload,
-      formula: metricData.definition,
-      event_mappings: metricData.events?.map(event => ({
-        event_id: typeof event === 'object' ? event.id : event.event_id,
-        event_name: typeof event === 'object' ? event.name : event.name
-      })) || []
+      formula: metricData.definition || metricData.formula || '',
+      event_mappings: eventMappings,
     };
   }
 
   if (metricType === 'qualitative') {
     return {
       ...basePayload,
-      definition: metricData.definition,
-      features: features,
-      event_mappings: metricData.events?.map(event => ({
-        event_id: typeof event === 'object' ? (event.category_id || event.id) : event.name
-      })) || []
+      definition: metricData.definition || '',
+      event_mappings: eventMappings,
     };
   }
 

@@ -1,6 +1,6 @@
 # Model Service APIs Deployment
 
-This directory contains two small servers for the model service:
+This directory contains the model service APIs and a template for adding custom models.
 
 ## Services
 
@@ -17,6 +17,12 @@ This directory contains two small servers for the model service:
 - **Endpoints**:
   - `POST /predict` - Single or batch LLM inference
 - **Supported Providers**: OpenAI, Anthropic, Google Gemini, Groq
+
+### 3. ANNIF (Subject Indexing) API
+- **Port**: 8004
+- **Purpose**: Automated subject indexing using Annif
+- **Endpoints**:
+  - `POST /predict` - Classify text into subject categories
 
 ## Quick Start
 
@@ -86,6 +92,57 @@ curl -X POST http://localhost:8003/predict \
     ]
   }'
 ```
+
+## Adding a Custom Model
+
+Use the `Template/` directory to add your own model to the workbench.
+
+### Steps
+
+1. **Copy the template**:
+   ```bash
+   cp -r Template/ YourModelName/
+   ```
+
+2. **Edit `YourModelName/server.py`**:
+   - Load your model in `setup()`
+   - Parse your input in `decode_request()`
+   - Run inference in `predict()` — return `{"success": True, "output": <prediction>}`
+   - Set `PORT` to an unused port (SAM=8002, Universal=8003, ANNIF=8004)
+
+3. **Edit `YourModelName/requirements.txt`**:
+   - Add your model's Python dependencies
+
+4. **Edit `YourModelName/Dockerfile`** (if needed):
+   - Add system packages your model requires (e.g., `libsndfile1` for audio)
+
+5. **Add to `docker-compose.yml`**:
+   ```yaml
+   your-model-api:
+     build:
+       context: ../../../../
+       dockerfile: src/services/model_service/api/YourModelName/Dockerfile
+     container_name: your-model-name
+     environment:
+       - PYTHONPATH=/app
+     restart: unless-stopped
+     networks:
+       - backend-network
+   ```
+
+6. **Register in the database**:
+   Create a `Modelmetadata` entry with:
+   - `location`: `http://your-model-api:PORT` (Docker service name + port)
+   - `model_type`: `0` for Predictive AI, `1` for Generative AI
+   - `acceptable_formats`: file types your model accepts (e.g., `["csv", "json"]`)
+
+7. **Deploy**:
+   ```bash
+   docker-compose up -d your-model-api
+   ```
+
+### Key Requirement
+Your model must expose a `POST /predict` endpoint that accepts JSON and returns JSON with at least `{"success": true, "output": <result>}`. This is what `run_model_inference()` in the workbench calls.
 
 ## Stopping Services
 

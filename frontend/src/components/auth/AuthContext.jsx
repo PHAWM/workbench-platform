@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { TokenStorage } from '../../api/apiService';
+import { resolveTenantId, getTenantFromToken } from '../../utils/tenant';
 
 // Your actual API endpoints
 const API_BASE_URL = import.meta.env.VITE_API_URL;
@@ -23,9 +24,19 @@ export const AuthProvider = ({ children }) => {
       formData.append('username', credentials.username);
       formData.append('password', credentials.password);
 
+      // X-Tenant-ID is only required on the login request.
+      // After login the issued JWT embeds the tenant (tid claim) and all
+      // subsequent requests are routed automatically via the Bearer token.
+      const tenantId = resolveTenantId();
+      const loginHeaders = {};
+      if (tenantId) {
+        loginHeaders['X-Tenant-ID'] = tenantId;
+      }
+
       const response = await fetch(LOGIN_ENDPOINT, {
         method: 'POST',
-        body: formData, // Using FormData instead of JSON
+        headers: loginHeaders,
+        body: formData,
       });
 
       const data = await response.json();
@@ -37,6 +48,13 @@ export const AuthProvider = ({ children }) => {
         // Use TokenStorage instead of direct sessionStorage
         TokenStorage.setToken(access_token);
         sessionStorage.setItem('tokenType', token_type);
+
+        // Persist tenant ID so other parts of the app can read it if needed.
+        // Not required for API routing (the JWT tid claim handles that), but
+        // useful for display or debug purposes.
+        if (tenantId) {
+          TokenStorage.setTenantId(tenantId);
+        }
 
         // Now get user profile
         const userResponse = await fetch(USER_PROFILE_ENDPOINT, {
@@ -75,6 +93,7 @@ export const AuthProvider = ({ children }) => {
 
   const logout = async () => {
     TokenStorage.clearToken();
+    TokenStorage.clearTenantId();
     sessionStorage.removeItem('tokenType');
     setUser(null);
     setIsAuthenticated(false);
@@ -83,6 +102,21 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const checkAuthStatus = async () => {
       const token = TokenStorage.getToken();
+
+      // If the logged-in user's JWT tenant doesn't match the deployment's
+      // tenant (user navigated /workbench/tenant_1 → /workbench/tenant_2),
+      // force a logout so we don't render the wrong tenant's data.
+      const deploymentTenant = resolveTenantId();
+      const tokenTenant = getTenantFromToken(token);
+      if (deploymentTenant && tokenTenant && deploymentTenant !== tokenTenant) {
+        TokenStorage.clearToken();
+        TokenStorage.clearTenantId();
+        sessionStorage.removeItem('tokenType');
+        setUser(null);
+        setIsAuthenticated(false);
+        setLoading(false);
+        return;
+      }
 
       if (token) {
         try {

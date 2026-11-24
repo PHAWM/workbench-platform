@@ -2,6 +2,70 @@
 import math
 import numpy as np
 import pandas as pd
+from sqlmodel import Session, select
+
+
+def should_skip_performance_pipeline(audit_id: int, session: Session) -> tuple[bool, str | None]:
+    """Decide whether to skip the performance-evaluation pipeline for an audit.
+
+    Skip rule: Black-box applications (Application.access_type == 0) with no
+    input AND no output dataset metadata on any of the audit's datasets have
+    nothing for the pipeline to evaluate, so we short-circuit instead of
+    raising. Grey/white-box audits, and black-box audits where either input
+    or output data is present, run as normal.
+
+    Returns (skip, reason). When skip is True, callers should return an empty
+    "skipped" response without touching the rest of the pipeline.
+    """
+    # Local imports to avoid circulars at module load time.
+    from src.models import (
+        Application,
+        DatasetMetadata,
+        MappingAuditApplication,
+        MappingAuditPipelineAudit,
+        MappingModelDatasetAudit,
+    )
+
+    application = session.exec(
+        select(Application)
+        .join(MappingAuditApplication, MappingAuditApplication.application_id == Application.id)
+        .where(MappingAuditApplication.audit_id == audit_id)
+    ).first()
+
+    if not application or application.access_type != 0:
+        return False, None
+
+    # Black-box — collect dataset ids attached to the audit via its
+    # AuditPipeline. MappingModelDatasetAudit links datasets through the
+    # pipeline, not directly to the audit.
+    dataset_ids: set[int] = set()
+    rows = session.exec(
+        select(MappingModelDatasetAudit.dataset_id)
+        .join(
+            MappingAuditPipelineAudit,
+            MappingAuditPipelineAudit.audit_pipeline == MappingModelDatasetAudit.auditpipeline,
+        )
+        .where(MappingAuditPipelineAudit.audit_id == audit_id)
+    ).all()
+    for ds_id in rows:
+        if ds_id is not None:
+            dataset_ids.add(ds_id)
+
+    if not dataset_ids:
+        return True, "Opaque-box application with no datasets attached — performance analysis skipped."
+
+    # Placeholder datasets (created on demand for opaque-box audits) carry
+    # I/O rows seeded from the model's task/output_context with no `location`
+    # — they're catalogue stubs, not real data. Treat I/O as absent unless at
+    # least one row has a location pointing at actual files.
+    for ds in session.exec(
+        select(DatasetMetadata).where(DatasetMetadata.id.in_(dataset_ids))
+    ).all():
+        for io_row in (ds.input_dataset_metadata or []) + (ds.output_dataset_metadata or []):
+            if getattr(io_row, "location", None):
+                return False, None
+
+    return True, "Opaque-box application with no input or output data — performance analysis skipped."
 
 
 def convert_numpy_to_json_serializable(obj):

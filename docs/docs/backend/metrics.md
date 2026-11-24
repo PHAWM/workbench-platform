@@ -460,7 +460,7 @@ The system supports sophisticated metric value configurations:
 
 ### 12. Get Metric Value Features
 
-**Endpoint:** `GET /metrics/values/{value_id}/features`
+**Endpoint:** `GET /metrics/values/{value_id}/all-features`
 
 **Description:** Retrieves features associated with a specific metric value.
 

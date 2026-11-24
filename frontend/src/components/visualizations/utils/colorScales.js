@@ -1,13 +1,13 @@
 export const COLORS = {
   bar: '#D263EB',
-  threshold: '#EF4444',
+  threshold: '#390101',
 };
 
 export const THRESHOLD_COLORS = {
-  line: '#EF4444',
+  line: '#390101',
   lineWidth: 2,
   dashArray: '4,4',
-  shadeFill: '#EF4444',
+  shadeFill: '#390101',
   shadeOpacity: 0.1,
   labelClass: 'text-[20px] font-bold',
 };

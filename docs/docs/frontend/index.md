@@ -1,8 +1,28 @@
 # Introduction
 
-<img src="media/logo_PHAWM.png" alt="Image - PHAWM Logo" width="1000" style="display: block; margin: 0 auto">
+<img src="/media/logo_PHAWM.png" alt="Image - PHAWM Logo" width="600" style="display: block; margin: 0 auto">
 
 # PHAWM Workbench User Manual  
+
+## Video Walkthrough
+
+A detailed walkthrough of the PHAWM Auditing Workbench, covering every part of the workbench in detail.
+
+<div style="position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; max-width: 800px; margin: 0 auto;">
+  <iframe src="https://www.youtube.com/embed/bB1HbmM7GXE" title="PHAWM Workbench Walkthrough" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"></iframe>
+</div>
+
+**Chapters**
+
+- [0:00 — Dashboard](https://www.youtube.com/watch?v=bB1HbmM7GXE&t=0s)
+- [1:47 — AI Application Overview](https://www.youtube.com/watch?v=bB1HbmM7GXE&t=107s)
+- [2:48 — Audit Criteria](https://www.youtube.com/watch?v=bB1HbmM7GXE&t=168s)
+- [9:09 — Create New Event](https://www.youtube.com/watch?v=bB1HbmM7GXE&t=549s)
+- [13:12 — Create New Qualitative Metric](https://www.youtube.com/watch?v=bB1HbmM7GXE&t=792s)
+- [18:38 — Create New Quantitative Metric](https://www.youtube.com/watch?v=bB1HbmM7GXE&t=1118s)
+- [23:57 — Performance Analysis](https://www.youtube.com/watch?v=bB1HbmM7GXE&t=1437s)
+- [31:18 — Output Evaluation](https://www.youtube.com/watch?v=bB1HbmM7GXE&t=1878s)
+- [36:42 — Audit Recommendation](https://www.youtube.com/watch?v=bB1HbmM7GXE&t=2202s)
 
 The PHAWM Workbench allows a group or individual, without expertise in AI, to audit an AI application. The benefits and research underpinning this approach are outlined in the PHAWM Methodology. For more information about the PHAWM project and the research underpinning this Workbench please visit phawm.org 
 
@@ -14,6 +34,6 @@ The process continues with **Performance Analysis**, where auditors analyse each
 
 The audit instigator will send you a link to the workbench along with your password, which you can use along with your email address to login. Once you are logged in, visit your user **Profile** page by clicking the following symbol in the top right corner of the page and make sure to change your password to something secure.  
 
-<img src="media/logo_person.png" alt="Image - Person" width="1000" style="display: block; margin: 0 auto">
+<img src="/media/logo_person.png" alt="Image - Person" width="600" style="display: block; margin: 0 auto">
 
 You also have the option of providing some additional details that may be of interest to the Audit Instigator. Providing sensitive data, such as your **Gender** or **Ethnicity**, is optional, but could be useful for the Audit Instigator. There may be instances where it is useful to know about the concerns raised by someone from a specific demographic group, this will help to ensure a diversity of voices being heard. 

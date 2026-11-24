@@ -146,6 +146,42 @@ def create_user_target_feature(
     return UserTargetFeatureResponse(**result)
 
 
+@router.delete("/features/user/{feature_id}")
+def delete_user_feature_endpoint(
+    feature_id: int,
+    audit_id: int,
+    session: SessionDep,
+    current_user = Depends(get_current_user)
+):
+    """
+    Remove an underlying feature from an audit.
+    audit_instigator: removes system feature (MappingDatasetFeatures).
+    auditor: removes user-specific feature (MappingUserAuditFeatures).
+    """
+    result = events_service.delete_user_feature(
+        feature_id, audit_id, current_user.id, session
+    )
+    return result
+
+
+@router.delete("/features/user/target/{target_feature_id}")
+def delete_user_target_feature_endpoint(
+    target_feature_id: int,
+    audit_id: int,
+    session: SessionDep,
+    current_user = Depends(get_current_user)
+):
+    """
+    Remove a target feature from an audit.
+    audit_instigator: removes system target feature (MappingModelTargetFeatures).
+    auditor: removes user-specific target feature (MappingUserAuditTargetFeatures).
+    """
+    result = events_service.delete_user_target_feature(
+        target_feature_id, audit_id, current_user.id, session
+    )
+    return result
+
+
 @router.post("/entities", response_model=UserEntityResponse)
 def create_user_entity(
     entity_data: UserEntityCreate,

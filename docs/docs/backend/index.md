@@ -44,10 +44,10 @@ src/
 
 Handles HTTP requests and responses. Each route module corresponds to a domain:
 
-| Route | Purpose |
-|-------|---------|
-| `login` | Authentication (JWT tokens) |
-| `users` | User management |
+| Route | Purpose | Docs |
+|-------|---------|------|
+| `login` | Authentication (JWT tokens) | [authentication.md](authentication.md) |
+| `users` | User management | [users.md](users.md) |
 | `application` | AI application setup |
 | `events` | Event CRUD operations |
 | `metrics` | Metric definitions |
@@ -90,3 +90,7 @@ PostgreSQL with SQLModel ORM. Migrations managed via Alembic.
 ## Authentication
 
 JWT-based authentication with access and refresh tokens. Token expiration configurable via environment variables.
+
+## Multi-Tenancy
+
+Schema-per-tenant isolation using PostgreSQL. Each tenant gets a dedicated schema provisioned on registration. See [multi_tenancy.md](multi_tenancy.md) for the full permission hierarchy, login flow, and provisioning guide.

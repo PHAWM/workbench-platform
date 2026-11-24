@@ -337,7 +337,7 @@ const QuantitativeMetricForm = ({
               Target: {formData.targetFeatures.length > 0 ? formData.targetFeatures.join(', ') : '<Targets>'}
             </div>
             <div className="text-base text-gray-500 mt-1">
-              Underlying: {formData.underlyingFeatures.length > 0 ? formData.underlyingFeatures.join(', ') : '<Distinguishing Factors>'}
+              Distinguishing Factors: {formData.underlyingFeatures.length > 0 ? formData.underlyingFeatures.join(', ') : '<Distinguishing Factors>'}
             </div>
             <div className="w-full h-1 bg-gray-200 rounded mt-2 mb-2"></div>
             <div className="text-base">Threshold: {formData.threshold || '<Threshold>'}</div>
@@ -384,7 +384,7 @@ const QuantitativeMetricForm = ({
           onClick={handleSubmit}
           className="bg-purple-100 hover:bg-purple-200 px-4 py-2 rounded-full text-base font-semibold transition-colors border-2 border-purple-200"
         >
-          Save Qualitative Metric
+          Save Quantitative Metric
         </button>
       </div>
     </div>

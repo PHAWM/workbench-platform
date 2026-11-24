@@ -1,0 +1,127 @@
+version: '3.8'
+
+services:
+  # S3-compatible storage (RustFS) for local development
+  rustfs:
+    image: rustfs/rustfs:latest
+    container_name: rustfs-storage
+    command: server /data --console-address ":9001"
+    environment:
+      - RUSTFS_ROOT_USER=${S3_ACCESS_KEY:-minioadmin}
+      - RUSTFS_ROOT_PASSWORD=${S3_SECRET_KEY:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - rustfs-data:/data
+    restart: unless-stopped
+    networks:
+      - backend-network
+
+  sam-api:
+    platform: linux/arm64
+    build:
+      context: ../../../../  # Points to workbench-backend root
+      dockerfile: src/services/model_service/api/SAM/Dockerfile
+      args:
+        BUILDPLATFORM: linux/arm64
+    container_name: sam-attachment-monitor
+    environment:
+      - PYTHONPATH=/app
+      - S3_ENDPOINT_URL=http://rustfs:9000
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME:-workbench}
+      - S3_REGION=${S3_REGION:-us-east-1}
+    ports:
+      - "8002:8002"
+    restart: unless-stopped
+    networks:
+      - backend-network
+
+  universal-llm-api:
+    platform: linux/arm64
+    build:
+      context: ../../../../  # Points to workbench-backend root
+      dockerfile: src/services/model_service/api/Universal/Dockerfile
+    container_name: universal-llm-inference
+    environment:
+      - PYTHONPATH=/app
+      # API keys are provided per-request, not as env vars
+    ports:
+      - "8003:8003"
+    restart: unless-stopped
+    networks:
+      - backend-network
+
+  annif-api:
+    platform: linux/arm64
+    build:
+      context: ../../../../  # Points to workbench-backend root
+      dockerfile: src/services/model_service/api/ANNIF/Dockerfile
+    container_name: annif-subject-indexing
+    environment:
+      - PYTHONPATH=/app
+    ports:
+      - "8004:8004"
+    restart: unless-stopped
+    networks:
+      - backend-network
+
+  pyterrier-rag-api:
+    platform: linux/arm64
+    build:
+      context: ../../../../
+      dockerfile: src/services/model_service/api/PyTerrier/Dockerfile
+    container_name: pyterrier-rag
+    environment:
+      - PYTHONPATH=/app
+      - S3_ENDPOINT_URL=http://rustfs:9000
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME:-workbench}
+      - S3_REGION=${S3_REGION:-us-east-1}
+      - LLM_MCP_URL=http://universal-llm-inference:8003
+      - PYTERRIER_INDEX_DIR=/data/indexes
+    ports:
+      - "8006:8006"
+    volumes:
+      - pyterrier-indexes:/data/indexes
+    restart: unless-stopped
+    networks:
+      - backend-network
+    depends_on:
+      - rustfs
+      - universal-llm-api
+
+  # -- Custom Model Template --
+  # Copy the Template directory, rename it, and uncomment below:
+  #
+  # custom-model-api:
+  #   build:
+  #     context: ../../../../
+  #     dockerfile: src/services/model_service/api/YourModel/Dockerfile
+  #   container_name: custom-model
+  #   environment:
+  #     - PYTHONPATH=/app
+  #     - S3_ENDPOINT_URL=http://rustfs:9000
+  #     - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+  #     - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+  #     - S3_BUCKET_NAME=${S3_BUCKET_NAME:-workbench}
+  #   restart: unless-stopped
+  #   networks:
+  #     - backend-network
+  #
+  # Then register in Modelmetadata with:
+  #   location: "http://custom-model-api:8010"
+  #   mcp_tool_name: "custom_predict"
+
+volumes:
+  rustfs-data:
+    driver: local
+  pyterrier-indexes:
+    driver: local
+
+networks:
+  backend-network:
+    name: backend-network

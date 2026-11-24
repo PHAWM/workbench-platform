@@ -7,34 +7,19 @@ from pathlib import Path
 from src.models import *
 from .utils import get_storage_path
 
+from src.services.utility_service.s3_storage_service import get_storage_manager, S3StorageManager
+
 
 def list_uploaded_datasets_comprehensive(
     audit_id: int,
     current_user_id: str,
-    session: Session
+    session: Session,
+    tenant_id: str | None = None
 ) -> Dict[str, Any]:
     """
     List all uploaded dataset files for a specific audit and user.
-
-    This service function handles the entire business logic for listing uploaded datasets,
-    including:
-    - User audit access verification
-    - Database query for uploaded files
-    - File metadata extraction
-    - Response construction
-
-    Args:
-        audit_id: The audit ID
-        current_user_id: The ID of the user requesting the list
-        session: Database session
-
-    Returns:
-        Dictionary with uploaded_files list, total_files count, audit_id, and storage_type
-
-    Raises:
-        HTTPException: If user has no access to the audit
+    Works with both local filesystem and S3 backends.
     """
-    # Get user audit mapping
     user_audit = session.exec(
         select(MappingAuditUser)
         .where(
@@ -49,7 +34,9 @@ def list_uploaded_datasets_comprehensive(
             detail="User not associated with this audit"
         )
 
-    # Get files from database
+    storage_manager = get_storage_manager(tenant_id)
+    is_s3 = isinstance(storage_manager, S3StorageManager)
+
     output_eval_mappings = session.exec(
         select(MappingOutputEvaluationUser, OutputEvaluationData)
         .join(OutputEvaluationData)
@@ -58,80 +45,104 @@ def list_uploaded_datasets_comprehensive(
 
     files = []
     for mapping, eval_data in output_eval_mappings:
-        file_path = Path(eval_data.location)
-        if file_path.is_file():
-            files.append({
-                "id": eval_data.id,
-                "data_id": mapping.id,
-                "filename": file_path.name,
-                "file_size": file_path.stat().st_size,
-                "upload_time": file_path.stat().st_mtime,
-                "file_path": str(file_path)
-            })
+        location = eval_data.location
+
+        if is_s3:
+            # location is an S3 key — get metadata from S3 object listing
+            s3_files = storage_manager.list_files(location)
+            for f in s3_files:
+                files.append({
+                    "id": eval_data.id,
+                    "data_id": mapping.id,
+                    "filename": f["file_name"],
+                    "file_size": f["size"],
+                    "upload_time": f["last_modified"].timestamp() if hasattr(f["last_modified"], "timestamp") else f["last_modified"],
+                    "file_path": f["key"],
+                })
+        else:
+            file_path = Path(location)
+            if file_path.exists():
+                files.append({
+                    "id": eval_data.id,
+                    "data_id": mapping.id,
+                    "filename": file_path.name,
+                    "file_size": file_path.stat().st_size,
+                    "upload_time": file_path.stat().st_mtime,
+                    "file_path": str(file_path),
+                })
 
     return {
         "uploaded_files": files,
         "total_files": len(files),
         "audit_id": audit_id,
-        "storage_type": "output_evaluation"
+        "storage_type": "output_evaluation",
     }
 
 
 def list_audit_files_comprehensive(
     audit_id: int,
     current_user_id: str,
-    session: Session
+    session: Session,
+    tenant_id: str | None = None
 ) -> Dict[str, Any]:
     """
     List all input files for a specific audit.
-
-    This service function handles the entire business logic for listing audit files,
-    including:
-    - Storage directory retrieval
-    - File system scanning
-    - Results.csv inclusion (at audit root, not in output folder)
-    - File metadata extraction
-    - Response construction
-
-    Args:
-        audit_id: The audit ID
-        current_user_id: The ID of the user requesting the list
-        session: Database session
-
-    Returns:
-        Dictionary with files list, total_files count, audit_id, and storage_type
-
-    Raises:
-        HTTPException: If operation fails
+    Works with both local filesystem and S3 backends.
     """
-    storage_dir = get_storage_path("audit_input", audit_id=audit_id)
+    storage_manager = get_storage_manager(tenant_id)
+    is_s3 = isinstance(storage_manager, S3StorageManager)
 
     files = []
-    storage_path = Path(storage_dir)
 
-    if storage_path.exists():
-        for file_path in storage_path.iterdir():
-            if file_path.is_file():
-                files.append({
-                    "filename": file_path.name,
-                    "file_size": file_path.stat().st_size,
-                    "upload_time": file_path.stat().st_mtime,
-                    "file_path": str(file_path)
-                })
+    if is_s3:
+        prefix = storage_manager.get_audit_input_path(str(audit_id))
+        s3_files = storage_manager.list_files(prefix)
+        for f in s3_files:
+            files.append({
+                "filename": f["file_name"],
+                "file_size": f["size"],
+                "upload_time": f["last_modified"].timestamp() if hasattr(f["last_modified"], "timestamp") else f["last_modified"],
+                "file_path": f["key"],
+            })
 
-    # Also check for results.csv in the audit root
-    results_path = Path(f"storage/audits/audit_{audit_id}/results.csv")
-    if results_path.exists():
-        files.append({
-            "filename": "results.csv",
-            "file_size": results_path.stat().st_size,
-            "upload_time": results_path.stat().st_mtime,
-            "file_path": str(results_path)
-        })
+        # Also check for results.csv at the audit root
+        results_key = storage_manager.get_audit_results_path(str(audit_id))
+        if storage_manager.file_exists(results_key):
+            obj = storage_manager.list_files(results_key.rsplit("/", 1)[0] + "/")
+            for f in obj:
+                if f["file_name"] == "results.csv":
+                    files.append({
+                        "filename": "results.csv",
+                        "file_size": f["size"],
+                        "upload_time": f["last_modified"].timestamp() if hasattr(f["last_modified"], "timestamp") else f["last_modified"],
+                        "file_path": results_key,
+                    })
+    else:
+        storage_dir = get_storage_path("audit_input", audit_id=audit_id)
+        storage_path = Path(storage_dir)
+
+        if storage_path.exists():
+            for file_path in storage_path.iterdir():
+                if file_path.is_file():
+                    files.append({
+                        "filename": file_path.name,
+                        "file_size": file_path.stat().st_size,
+                        "upload_time": file_path.stat().st_mtime,
+                        "file_path": str(file_path),
+                    })
+
+        results_path = Path(f"storage/audits/audit_{audit_id}/results.csv")
+        if results_path.exists():
+            files.append({
+                "filename": "results.csv",
+                "file_size": results_path.stat().st_size,
+                "upload_time": results_path.stat().st_mtime,
+                "file_path": str(results_path),
+            })
 
     return {
         "files": files,
         "total_files": len(files),
         "audit_id": audit_id,
-        "storage_type": "audit_input"
+        "storage_type": "audit_input",
     }

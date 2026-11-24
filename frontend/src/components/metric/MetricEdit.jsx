@@ -46,10 +46,18 @@ export const EditMetricForm = ({
     reason: metric.reason || '',
     targetFeatures: parseTargetFeatures(metric.targetFeatures, availableTargetFeatures),
     underlyingFeatures: parseUnderlyingFeatures(metric.underlyingFeatures || metric.features, availableUnderlyingFeatures),
-    featureGroups: metric.featureGroups || 'Minimum of 2',
     featureRanges: parseFeatureRanges(metric, availableUnderlyingFeatures),
     ...parseScalePoints(metric.scale_points)
   } : {};
+
+  // Derive featureGroups from the widest range loaded, falling back to 2
+  if (metric) {
+    const maxGroups = Math.max(
+      2,
+      ...Object.values(initialFormData.featureRanges || {}).map(r => Object.keys(r).length),
+    );
+    initialFormData.featureGroups = metric.featureGroups ?? String(maxGroups);
+  }
 
   const {
     formData,
@@ -279,7 +287,7 @@ export const EditMetricForm = ({
       }));
     } else if (metricType === 'qualitative' && (changes.underlyingFeatures || changes.scalePointsArray || changes.points)) {
       // For qualitative metrics, use underlyingFeatures directly
-      const metricValues = buildQualitativeMetricValues(formData, availableUnderlyingFeatures);
+      const metricValues = buildQualitativeMetricValues(formData, availableUnderlyingFeatures, availableTargetFeatures);
       apiPayload.metric_values = metricValues.map(mv => ({
         ...mv,
         event_id: metric.eventId,
@@ -899,7 +907,7 @@ export const EditMetricForm = ({
               Target: {formData.targetFeatures?.length > 0 ? formData.targetFeatures.join(', ') : '<Targets>'}
             </div>
             <div className="text-base text-gray-500 mt-1">
-              Underlying: {formData.underlyingFeatures?.length > 0 ? formData.underlyingFeatures.join(', ') : '<Distinguishing Factors>'}
+              Distinguishing Factors: {formData.underlyingFeatures?.length > 0 ? formData.underlyingFeatures.join(', ') : '<Distinguishing Factors>'}
             </div>
             <div className="w-full h-1 bg-gray-200 rounded mt-2 mb-2"></div>
             <div className="text-base">Threshold: {formData.threshold || '<Threshold>'}</div>
@@ -950,7 +958,7 @@ export const EditMetricForm = ({
           }`}
           disabled={!changesExist || isReadOnly}
         >
-          {isReadOnly ? 'Read-Only Mode' : changesExist ? 'Save Quantitative Metric' : 'No Changes to Save'}
+          {isReadOnly ? 'Read-Only Mode' : changesExist ? metricType === 'qualitative' ? 'Save Qualitative Metric' : 'Save Quantitative Metric' : 'No Changes to Save'}
         </button>
       </div>
     </div>

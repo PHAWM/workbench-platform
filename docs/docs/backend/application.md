@@ -394,9 +394,67 @@ Access is controlled through the `MappingAuditUser` relationship with role-based
 
 ---
 
+---
+
+### 8. Invite Auditor
+
+**Endpoint:** `POST /audits/{audit_id}/invite`
+
+**Access:** Audit instigator only (`get_audit_instigator_access` dependency)
+
+**Description:** Invites a user to participate in an audit as an auditor by email address. Handles two cases automatically:
+
+- **New user** — creates a placeholder account (inactive, no password), assigns them to the audit, and sends an invitation email containing a link to set their password.
+- **Existing user** — assigns them to the audit directly and sends a notification email. They log in with their existing credentials.
+
+**Path Parameters:**
+- `audit_id` (int): ID of the audit to invite the auditor to
+
+**Request Body:**
+```json
+{
+  "email": "auditor@example.com"
+}
+```
+
+**Response:**
+```json
+{
+  "audit_id": 123,
+  "audit_name": "Q4 ML Model Audit",
+  "user_id": "550e8400-e29b-41d4-a716-446655440000",
+  "user_name": "Jane Auditor",
+  "user_email": "auditor@example.com",
+  "is_new_user": true,
+  "invitation_token": "abc123...",
+  "invitation_expires": "2026-04-27T10:00:00+00:00",
+  "message": "User Jane Auditor successfully invited to audit 'Q4 ML Model Audit'"
+}
+```
+
+**What gets created:**
+- `User` record (if new) — `is_active=False`, `is_verified=False` until they accept the invite
+- `MappingAuditUser` — links user to audit with the `auditor` role
+- `MappingAuditOutcomeUser` — initial outcome row (status `0`, recommendation `0`) so progress tracking works immediately
+- `UserInvitation` — 7-day token for the set-password flow (new users only)
+
+**Auditor onboarding flow** (after receiving the invitation email):
+
+1. `POST /users/accept-invite` — validate the token, check whether password still needs to be set
+2. `POST /users/set-password-with-invite` — set password and activate the account
+3. Login normally with `POST /login/access-token`
+
+**Status Codes:**
+- `200`: Invited successfully
+- `403`: Caller is not the audit instigator
+- `404`: Audit not found
+- `409`: That email is already assigned to this audit
+
+---
+
 ## Application Management Endpoints
 
-### 8. Create Application
+### 9. Create Application
 
 **Endpoint:** `POST /audits/applications/`
 
@@ -436,7 +494,7 @@ POST /audits/applications/?name=ML%20Service&description=Production%20ML%20servi
 
 ---
 
-### 9. Update Application
+### 10. Update Application
 
 **Endpoint:** `PUT /audits/applications/{application_id}`
 

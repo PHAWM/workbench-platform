@@ -583,86 +583,109 @@ def enhance_file_info_with_metadata(file_info: Dict[str, Any],
 
 
 def discover_input_data_with_metadata(location: str, datatypes_info: Dict[str, Any],
-                                    storage_manager: StorageManager,
+                                    storage_manager,
                                     metadata_manager: InputFileMetadataManager) -> List[Dict[str, Any]]:
     """
     *** MAIN INTEGRATION FUNCTION ***
     Enhanced version of your discover_input_data function that includes metadata.
+    Accepts either a local StorageManager or an S3StorageManager (duck-typed).
     """
+    from src.services.utility_service.s3_storage_service import S3StorageManager
+
+    # ------------------------------------------------------------------
+    # S3 backend path
+    # ------------------------------------------------------------------
+    if isinstance(storage_manager, S3StorageManager):
+        # location is an S3 key prefix (e.g. "audits/audit_5/input/")
+        s3_key = _local_path_to_s3_key(location)
+        discovered_files = storage_manager.discover_files_in_path(s3_key)
+        all_entries = []
+        for file_info in discovered_files:
+            if file_info['file_name'].lower() == 'metadata.csv':
+                continue
+            file_info = enhance_file_info_with_metadata(file_info, metadata_manager)
+            entries = _load_file_from_s3(file_info, datatypes_info, storage_manager)
+            all_entries.extend(entries)
+        return all_entries
+
+    # ------------------------------------------------------------------
+    # Local filesystem path (original behaviour)
+    # ------------------------------------------------------------------
     actual_path, location_info = parse_storage_location(location, storage_manager)
     path = Path(actual_path)
 
     if not path.exists():
         raise FileNotFoundError(f"Path does not exist: {actual_path}")
-    
+
     all_entries = []
-    
+
     if path.is_file():
-        # Single file
         file_info = storage_manager._analyse_file(path)
         file_info['metadata'].update(location_info)
-        
-        # *** METADATA ENHANCEMENT ***
         file_info = enhance_file_info_with_metadata(file_info, metadata_manager)
-        
         if file_info['file_type'] == 'structured_data':
             entries = load_structured_data_file(file_info, datatypes_info)
         elif file_info['file_type'] == 'text':
             entries = load_text_file(file_info)
         else:
             entries = [file_info]
-        
         all_entries.extend(entries)
-    
-    elif path.is_dir():
-        # Directory with multiple files
-        discovered_files = storage_manager.discover_files_in_path(path)
 
+    elif path.is_dir():
+        discovered_files = storage_manager.discover_files_in_path(path)
         for file_info in discovered_files:
-            # Skip metadata.csv files - they are used for enrichment only, not as input data
             if file_info['file_name'].lower() == 'metadata.csv':
                 continue
-
             file_info['metadata'].update(location_info)
-
-            # *** METADATA ENHANCEMENT ***
             file_info = enhance_file_info_with_metadata(file_info, metadata_manager)
-
             if file_info['file_type'] == 'structured_data':
                 entries = load_structured_data_file(file_info, datatypes_info)
             elif file_info['file_type'] == 'text':
                 entries = load_text_file(file_info)
             else:
                 entries = [file_info]
-
             all_entries.extend(entries)
-    
+
     return all_entries
 
 
-def save_output_data(output_df: pd.DataFrame, location: str, storage_manager: StorageManager, dataset_name: str = "evaluation"):
-    """Save output data to the specified storage location."""
-    actual_path, _ = parse_storage_location(location, storage_manager)
+def save_output_data(output_df: pd.DataFrame, location: str, storage_manager, dataset_name: str = "evaluation"):
+    """Save output data to the specified storage location.
 
-    # Check if location is a directory path (no file extension) or doesn't end with a valid extension
+    Works with both local StorageManager and S3StorageManager (duck-typed).
+    """
+    from src.services.utility_service.s3_storage_service import S3StorageManager
+
+    # ------------------------------------------------------------------
+    # S3 backend path
+    # ------------------------------------------------------------------
+    if isinstance(storage_manager, S3StorageManager):
+        s3_key = _local_path_to_s3_key(location)
+        # Ensure key ends with a filename
+        if not s3_key.endswith('.csv') and not s3_key.endswith('.parquet'):
+            ext = 'parquet' if len(output_df) > 10000 else 'csv'
+            s3_key = s3_key.rstrip('/') + f"/output.{ext}"
+        if s3_key.endswith('.csv'):
+            storage_manager.write_csv(s3_key, output_df)
+        else:
+            storage_manager.write_parquet(s3_key, output_df)
+        return s3_key
+
+    # ------------------------------------------------------------------
+    # Local filesystem path (original behaviour)
+    # ------------------------------------------------------------------
+    actual_path, _ = parse_storage_location(location, storage_manager)
     path_obj = Path(actual_path)
     has_extension = path_obj.suffix.lower() in ['.csv', '.json', '.xlsx', '.parquet']
 
     if not has_extension:
-        # Location is a directory - add output.csv filename
-        file_extension = 'csv'
-        if len(output_df) > 10000:
-            file_extension = 'parquet'
-
-        # Use simple "output.csv" filename for consistency
-        filename = f"output.{file_extension}"
-        actual_path = str(path_obj / filename)
+        file_extension = 'parquet' if len(output_df) > 10000 else 'csv'
+        actual_path = str(path_obj / f"output.{file_extension}")
 
     output_path = Path(actual_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     file_extension = output_path.suffix.lower()
-
     if file_extension == '.csv':
         output_df.to_csv(actual_path, index=False)
     elif file_extension == '.json':
@@ -676,3 +699,87 @@ def save_output_data(output_df: pd.DataFrame, location: str, storage_manager: St
         output_df.to_csv(actual_path, index=False)
 
     return actual_path
+
+
+# ------------------------------------------------------------------
+# Private helpers for S3 integration
+# ------------------------------------------------------------------
+
+def _local_path_to_s3_key(location: str) -> str:
+    """Convert a local storage path to an S3 key prefix.
+
+    Examples::
+        "storage/audits/audit_5/input/"  →  "audits/audit_5/input/"
+        "audits/audit_5/input/"          →  "audits/audit_5/input/"
+        "audit:5/input"                  →  "audits/audit_5/input/"
+    """
+    if location.startswith("audit:"):
+        parts = location.replace("audit:", "").split("/")
+        audit_id = parts[0]
+        sub = parts[1] if len(parts) > 1 else "input"
+        return f"audits/audit_{audit_id}/{sub}/"
+    if location.startswith("user:"):
+        parts = location.replace("user:", "").split("/")
+        user_id = parts[0]
+        audit_id = parts[1] if len(parts) > 1 else None
+        sub = parts[2] if len(parts) > 2 else "input"
+        if audit_id:
+            return f"audits/audit_{audit_id}/users/{user_id}/output_evaluation/{sub}/"
+        return f"users/{user_id}/output_evaluation/{sub}/"
+    # Strip leading "storage/" if present
+    key = location.lstrip("/")
+    if key.startswith("storage/"):
+        key = key[len("storage/"):]
+    return key
+
+
+def _load_file_from_s3(file_info: Dict[str, Any], datatypes_info: Dict[str, Any],
+                       storage_manager) -> List[Dict[str, Any]]:
+    """Load a single file from S3 into a list of entry dicts."""
+    import io, json as _json
+
+    key = file_info['file_path']  # S3 key
+    ext = file_info['file_extension']
+    file_type = file_info['file_type']
+    entries = []
+
+    try:
+        raw = storage_manager.read_file(key)
+
+        if file_type == 'structured_data':
+            if ext == '.csv':
+                df = pd.read_csv(io.BytesIO(raw))
+            elif ext in ('.xlsx', '.xls'):
+                df = pd.read_excel(io.BytesIO(raw))
+            elif ext == '.json':
+                data = _json.loads(raw.decode('utf-8'))
+                df = pd.DataFrame(data if isinstance(data, list) else [data])
+            else:
+                df = pd.DataFrame()
+
+            df = apply_datatypes_to_df(df, datatypes_info)
+            for idx, row in df.iterrows():
+                entry = file_info.copy()
+                entry['data'] = row.to_dict()
+                entry['metadata'] = dict(entry.get('metadata', {}))
+                entry['metadata'].update({'row_number': idx + 1, 'total_rows': len(df)})
+                entries.append(entry)
+
+        elif file_type == 'text':
+            content = raw.decode('utf-8').strip()
+            entry = file_info.copy()
+            entry['data'] = {'text': content, 'prompt': content, 'content': content}
+            entry['metadata'] = dict(entry.get('metadata', {}))
+            entry['metadata'].update({'character_count': len(content), 'word_count': len(content.split())})
+            entries.append(entry)
+
+        else:
+            entries.append(file_info)
+
+    except Exception as e:
+        err = file_info.copy()
+        err['metadata'] = dict(err.get('metadata', {}))
+        err['metadata']['error'] = str(e)
+        entries.append(err)
+
+    return entries

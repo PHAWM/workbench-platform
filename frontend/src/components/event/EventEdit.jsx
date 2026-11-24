@@ -101,17 +101,11 @@ export const EditEventForm = ({
   // Handle entity creation - create via API and get the ID
   const handleEntityCreate = async (newEntityName) => {
     try {
-      // Create entity via API with num_individuals = 1
-      const response = await eventsAPI.createEntity(newEntityName, 1, parseInt(auditId));
+      const response = await eventsAPI.createEntity(newEntityName, 0, parseInt(auditId));
 
       // console.log('Entity creation response:', response);
 
-      // Update entity details
-      const updatedEntityDetails = {
-        ...entityDetails,
-        [newEntityName]: 1
-      };
-      setEntityDetails(updatedEntityDetails);
+      setEntityDetails({ ...entityDetails, [newEntityName]: 0 });
 
       // Add to available entities list with the ID from response
       // API can return id, entity_id, or entities_id
@@ -123,7 +117,7 @@ export const EditEventForm = ({
         entities_id: entityId,
         name: newEntityName,
         entity_name: newEntityName,
-        num_individuals: 1
+        num_individuals: 0
       };
 
       setAvailableEntities(prev => [...prev, newEntity]);
@@ -180,15 +174,21 @@ export const EditEventForm = ({
       return;
     }
 
-    // Validate all fields using inline validation
-    const inlineValidation = validateAllFields(formData);
+    // In "Edit Event Values" mode only valence/likelihood/magnitude are editable,
+    // so only require those. The full edit form requires every field.
+    const requiredFields = editValues
+      ? ['eventName', 'eventDescription', 'categories', 'entities', 'cause', 'valence']
+      : ['valence'];
+
+    // Validate the relevant fields using inline validation
+    const inlineValidation = validateAllFields(formData, requiredFields);
 
     if (!inlineValidation.isValid) {
       return;
     }
 
     const changes = getChanges();
-    const validation = validateForm(['eventName', 'eventDescription', 'categories', 'entities', 'cause', 'valence']);
+    const validation = validateForm(requiredFields);
 
     if (!validation.isValid) {
       notify.error(`Please fill in all required fields: ${validation.missingFields.join(', ')}`);

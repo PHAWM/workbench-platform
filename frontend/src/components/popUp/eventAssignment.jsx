@@ -109,10 +109,17 @@ const EventAssignmentModal = ({
     try {
       // console.log('🚀 Starting event creation in EventAssignment modal...');
 
+      // Use updated categories/entities from the form if provided (includes system entities the
+      // user selected and any newly created ones with IDs). Mirrors handleEventFormComplete in
+      // auditHandlers so entity dedup matches the standalone "create event" flow — otherwise a
+      // system entity is treated as new and the backend rejects it as already existing.
+      const categoriesToUse = newEventData._updatedCategories || eventCategories;
+      const entitiesToUse = newEventData._updatedEntities || entities;
+
       // Step 1: Detect and create new entities FIRST
       const { createdEntities, entityNameToIdMap } = await detectAndCreateNewEntities(
         newEventData,
-        entities,
+        entitiesToUse,
         auditId
       );
 
@@ -122,7 +129,7 @@ const EventAssignmentModal = ({
 
       // Step 2: Map categories
       const mappedCategories = newEventData.categories ? newEventData.categories.map(categoryName => {
-        const category = eventCategories.find(cat =>
+        const category = categoriesToUse.find(cat =>
           (cat.event_name || cat.name || cat) === categoryName
         );
         return {
@@ -140,7 +147,7 @@ const EventAssignmentModal = ({
         }
 
         // Otherwise find in existing entities
-        const entity = entities.find(ent =>
+        const entity = entitiesToUse.find(ent =>
           (ent.name || ent.entity_name || ent) === entityName
         );
         return {

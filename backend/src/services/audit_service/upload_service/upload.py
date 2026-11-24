@@ -3,10 +3,10 @@ from typing import Any, Dict, List
 from fastapi import HTTPException, UploadFile
 from sqlmodel import Session, select
 from pathlib import Path
-import shutil
 import uuid
 
 from src.models import *
+from src.services.utility_service.s3_storage_service import get_storage_manager, S3StorageManager
 from .utils import (
     ensure_directory_exists,
     extract_csv_headers,
@@ -17,11 +17,35 @@ from .utils import (
 )
 
 
+def _save_upload(file: UploadFile, storage_dir: str, safe_filename: str, tenant_id: str | None = None) -> tuple[str, int]:
+    """Save an uploaded file to local disk or S3. Returns (location_str, file_size)."""
+    sm = get_storage_manager(tenant_id)
+    contents = file.file.read()
+    file_size = len(contents)
+
+    if isinstance(sm, S3StorageManager):
+        prefix = storage_dir.lstrip("/")
+        if prefix.startswith("storage/"):
+            prefix = prefix[len("storage/"):]
+        if not prefix.endswith("/"):
+            prefix += "/"
+        key = prefix + safe_filename
+        sm.write_file(key, contents, content_type=file.content_type or "application/octet-stream")
+        location = key
+    else:
+        file_path = Path(storage_dir) / safe_filename
+        file_path.write_bytes(contents)
+        location = str(file_path)
+
+    return location, file_size
+
+
 def upload_dataset_comprehensive(
     file: UploadFile,
     audit_id: int,
     current_user_id: str,
-    session: Session
+    session: Session,
+    tenant_id: str | None = None
 ) -> Dict[str, Any]:
     """
     Upload a dataset file to the evaluation system.
@@ -86,7 +110,7 @@ def upload_dataset_comprehensive(
     ensure_directory_exists(storage_dir)
 
     # Check for duplicate file
-    is_duplicate, existing_filename = check_duplicate_file(storage_dir, file.filename)
+    is_duplicate, existing_filename = check_duplicate_file(storage_dir, file.filename, tenant_id=tenant_id)
     if is_duplicate:
         raise HTTPException(
             status_code=400,
@@ -98,14 +122,12 @@ def upload_dataset_comprehensive(
     file_suffix = Path(file.filename).suffix
     unique_id = str(uuid.uuid4())[:8]
     safe_filename = f"{file_stem}_{unique_id}{file_suffix}"
-    file_path = Path(storage_dir) / safe_filename
 
-    # Save the uploaded file
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    # Save the uploaded file (local or S3)
+    file_location, file_size = _save_upload(file, storage_dir, safe_filename, tenant_id=tenant_id)
 
     # Create database records
-    output_eval_data = OutputEvaluationData(location=str(file_path))
+    output_eval_data = OutputEvaluationData(location=file_location)
     session.add(output_eval_data)
     session.flush()
 
@@ -174,15 +196,12 @@ def upload_dataset_comprehensive(
     session.commit()
     session.refresh(output_eval_user)
 
-    # Get file info
-    file_size = file_path.stat().st_size
-
     return {
         "message": "Dataset uploaded successfully",
         "filename": safe_filename,
         "original_filename": file.filename,
         "file_size": file_size,
-        "file_path": str(file_path),
+        "file_path": file_location,
         "content_type": file.content_type,
         "storage_type": "output_evaluation",
         "data_id": output_eval_user.id,
@@ -194,7 +213,8 @@ def upload_multiple_datasets_comprehensive(
     files: List[UploadFile],
     audit_id: int,
     current_user_id: str,
-    session: Session
+    session: Session,
+    tenant_id: str | None = None
 ) -> Dict[str, Any]:
     """
     Upload multiple dataset files including metadata.csv.
@@ -295,7 +315,7 @@ def upload_multiple_datasets_comprehensive(
                 continue
 
             # Check for duplicate file
-            is_duplicate, existing_filename = check_duplicate_file(storage_dir, file.filename)
+            is_duplicate, existing_filename = check_duplicate_file(storage_dir, file.filename, tenant_id=tenant_id)
             if is_duplicate:
                 failed_files.append({
                     "filename": file.filename,
@@ -308,17 +328,15 @@ def upload_multiple_datasets_comprehensive(
             file_suffix = Path(file.filename).suffix
             unique_id = str(uuid.uuid4())[:8]
             safe_filename = f"{file_stem}_{unique_id}{file_suffix}"
-            file_path = Path(storage_dir) / safe_filename
 
-            # Save file
-            with open(file_path, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
-
-            file_size = file_path.stat().st_size
+            # Save file (local or S3)
+            file_location, file_size = _save_upload(file, storage_dir, safe_filename, tenant_id=tenant_id)
 
             # Track metadata.csv path but don't create database record for it
             if file.filename.lower() == "metadata.csv":
-                metadata_csv_path = file_path
+                # For S3, store key; for local, keep as Path for extract_csv_headers
+                sm = get_storage_manager(tenant_id)
+                metadata_csv_path = file_location if isinstance(sm, S3StorageManager) else Path(file_location)
                 uploaded_files.append({
                     "filename": safe_filename,
                     "original_filename": file.filename,
@@ -328,7 +346,7 @@ def upload_multiple_datasets_comprehensive(
                 continue  # Skip database record creation for metadata.csv
 
             # Create database records only for non-metadata files
-            output_eval_data = OutputEvaluationData(location=str(file_path))
+            output_eval_data = OutputEvaluationData(location=file_location)
             session.add(output_eval_data)
             session.flush()
 
@@ -390,10 +408,27 @@ def upload_multiple_datasets_comprehensive(
     dataset_id = None
     features_created = []
 
-    if metadata_csv_path and metadata_csv_path.exists():
+    # Resolve metadata.csv for header extraction (works for both local and S3)
+    _metadata_readable = None
+    sm = get_storage_manager(tenant_id)
+    if metadata_csv_path:
+        if isinstance(sm, S3StorageManager):
+            import tempfile, os
+            _csv_bytes = sm.read_file(metadata_csv_path if isinstance(metadata_csv_path, str) else str(metadata_csv_path))
+            _tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".csv")
+            _tmp.write(_csv_bytes)
+            _tmp.close()
+            _metadata_readable = Path(_tmp.name)
+        else:
+            _metadata_readable = metadata_csv_path
+
+    if _metadata_readable and _metadata_readable.exists():
         try:
             # Extract headers from metadata.csv
-            headers = extract_csv_headers(metadata_csv_path)
+            headers = extract_csv_headers(_metadata_readable)
+            if isinstance(sm, S3StorageManager):
+                import os as _os
+                _os.unlink(_metadata_readable)
 
             if headers:
                 # Check if dataset already exists for this audit
@@ -453,75 +488,141 @@ def upload_multiple_datasets_comprehensive(
 
 
 def upload_audit_input_comprehensive(
-    file: UploadFile,
+    files: List[UploadFile],
     audit_id: int,
     current_user_id: str,
-    session: Session
+    session: Session,
+    tenant_id: str | None = None
 ) -> Dict[str, Any]:
     """
-    Upload input data for an audit (audit instigator).
+    Upload one or more input files for an audit (audit instigator).
 
-    This service function handles the entire business logic for uploading audit input files,
-    including:
-    - File type validation
-    - Storage path management
-    - Duplicate file checking
-    - File saving with unique identifiers
+    Accepts any mix of data files + an optional metadata.csv.
 
-    Args:
-        file: The uploaded file
-        audit_id: The audit ID
-        current_user_id: The ID of the user uploading the file
-        session: Database session
-
-    Returns:
-        Dictionary with upload status, filename, file_size, and file_path
-
-    Raises:
-        HTTPException: If file type invalid or duplicate file exists
+    - All files are saved to audits/audit_{id}/input/ (S3 or local)
+    - If metadata.csv is included:
+        - Its columns are registered as UnderlyingFeatures
+        - InputDatasetMetadata.location is set to the input directory
+        - DatasetMetadata is created/linked if not already present
     """
-    # Validate file type
-    allowed_extensions = {'.csv', '.json', '.xlsx', '.txt', '.parquet', '.pdf', '.wav'}
-    file_extension = Path(file.filename).suffix.lower()
+    allowed_extensions = {'.csv', '.json', '.xlsx', '.txt', '.parquet', '.pdf', '.wav', '.mp3', '.html'}
 
-    if file_extension not in allowed_extensions:
-        raise HTTPException(
-            status_code=400,
-            detail=f"File type {file_extension} not allowed"
-        )
-
-    # Get storage path and ensure directory exists
     storage_dir = get_storage_path("audit_input", audit_id=audit_id)
     ensure_directory_exists(storage_dir)
 
-    # Check for duplicate file
-    is_duplicate, existing_filename = check_duplicate_file(storage_dir, file.filename)
-    if is_duplicate:
-        raise HTTPException(
-            status_code=400,
-            detail=f"A file with the same name '{file.filename}' already exists as '{existing_filename}'. Please delete the existing file or rename your file before uploading."
-        )
+    uploaded_files = []
+    failed_files = []
+    metadata_csv_location = None
 
-    # Generate unique filename
-    file_stem = Path(file.filename).stem
-    file_suffix = Path(file.filename).suffix
-    unique_id = str(uuid.uuid4())[:8]
-    safe_filename = f"{file_stem}_{unique_id}{file_suffix}"
-    file_path = Path(storage_dir) / safe_filename
+    for file in files:
+        file_extension = Path(file.filename).suffix.lower()
+        if file_extension not in allowed_extensions:
+            failed_files.append({"filename": file.filename, "error": f"File type {file_extension} not allowed"})
+            continue
 
-    # Save the uploaded file
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+        is_duplicate, existing_filename = check_duplicate_file(storage_dir, file.filename, tenant_id=tenant_id)
+        if is_duplicate:
+            failed_files.append({"filename": file.filename, "error": f"Already exists as '{existing_filename}'"})
+            continue
 
-    # Get file info
-    file_size = file_path.stat().st_size
+        if file.filename.lower() == "metadata.csv":
+            # Save metadata.csv without a unique suffix so it's always findable
+            file_location, file_size = _save_upload(file, storage_dir, "metadata.csv", tenant_id=tenant_id)
+            metadata_csv_location = file_location
+        else:
+            file_stem = Path(file.filename).stem
+            file_suffix = Path(file.filename).suffix
+            unique_id = str(uuid.uuid4())[:8]
+            safe_filename = f"{file_stem}_{unique_id}{file_suffix}"
+            file_location, file_size = _save_upload(file, storage_dir, safe_filename, tenant_id=tenant_id)
+
+        uploaded_files.append({
+            "filename": file.filename,
+            "file_size": file_size,
+            "file_path": file_location,
+        })
+
+    # --- Process metadata.csv: update InputDatasetMetadata ---
+    features_created = []
+    dataset_id = None
+
+    if metadata_csv_location:
+        try:
+            # Read headers from metadata.csv
+            sm = get_storage_manager(tenant_id)
+            if isinstance(sm, S3StorageManager):
+                import tempfile as _tf, os as _os, io as _io
+                raw = sm.read_file(metadata_csv_location)
+                import pandas as _pd
+                headers = list(_pd.read_csv(_io.BytesIO(raw), nrows=0).columns)
+            else:
+                headers = extract_csv_headers(Path(metadata_csv_location))
+
+            if headers:
+                # Find or create DatasetMetadata linked to this audit
+                audit_pipeline = session.exec(
+                    select(MappingModelDatasetAudit)
+                    .join(MappingAuditPipelineAudit, MappingModelDatasetAudit.auditpipeline == MappingAuditPipelineAudit.audit_pipeline)
+                    .where(MappingAuditPipelineAudit.audit_id == audit_id)
+                ).first()
+
+                if audit_pipeline and audit_pipeline.dataset_id:
+                    dataset_id = audit_pipeline.dataset_id
+                else:
+                    new_dataset = DatasetMetadata(purpose="audit_input", copyright_agreement=True)
+                    session.add(new_dataset)
+                    session.flush()
+                    dataset_id = new_dataset.id
+                    if audit_pipeline:
+                        audit_pipeline.dataset_id = dataset_id
+                        session.add(audit_pipeline)
+
+                # Normalise storage_dir to S3 key prefix or local path
+                input_location = storage_dir
+                if isinstance(sm, S3StorageManager):
+                    input_location = storage_dir.lstrip("/")
+                    if input_location.startswith("storage/"):
+                        input_location = input_location[len("storage/"):]
+                    input_location = input_location.rstrip("/")
+
+                # Create or update InputDatasetMetadata
+                existing_input = session.exec(
+                    select(InputDatasetMetadata).where(
+                        InputDatasetMetadata.dataset_metadata_id == dataset_id
+                    )
+                ).first()
+
+                headers_dict = {h: h for h in headers}
+                if existing_input:
+                    existing_input.headers = headers_dict
+                    existing_input.location = input_location
+                    session.add(existing_input)
+                else:
+                    session.add(InputDatasetMetadata(
+                        dataset_metadata_id=dataset_id,
+                        headers=headers_dict,
+                        benchmark_dataset=False,
+                        datatypes={},
+                        location=input_location,
+                    ))
+
+                # Register underlying features
+                existing_feature_names = set(session.exec(select(UnderlyingFeatures.feature_name)).all())
+                features_created = create_underlying_features_for_dataset(
+                    session, dataset_id, headers, existing_feature_names
+                )
+
+        except Exception as e:
+            print(f"Error processing metadata.csv: {e}")
+
+    session.commit()
 
     return {
-        "message": "Audit input data uploaded successfully",
-        "filename": safe_filename,
-        "original_filename": file.filename,
-        "file_size": file_size,
-        "file_path": str(file_path),
-        "content_type": file.content_type,
-        "storage_type": "audit_input"
+        "message": f"Processed {len(files)} file(s) for audit {audit_id}",
+        "uploaded_files": uploaded_files,
+        "failed_files": failed_files,
+        "storage_location": storage_dir,
+        "metadata_processed": metadata_csv_location is not None,
+        "features_created": features_created,
+        "dataset_id": dataset_id,
     }

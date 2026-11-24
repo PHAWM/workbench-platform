@@ -1,6 +1,6 @@
 # PHAWM: Participatory AI Auditing Workbench
 
-<img src="media/phawm_Workbench.png" alt="Sample Image" width="1000" style="display: block; margin: 0 auto">
+<img src="/media/phawm_Workbench.png" alt="Sample Image" width="600" style="display: block; margin: 0 auto">
 
 *The PHAWM Workbench enables participatory AI auditing through a structured four-phase process where auditors can understand, define, evaluate, and inform AI applications.*
 

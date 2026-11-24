@@ -50,7 +50,7 @@ def get_audit_status(audit_id: int, user_audit_id: int, session: Session) -> Tup
     audit_status = session.exec(select(MappingAuditOutcomeUser.status).where(
         MappingAuditOutcomeUser.audit_id == audit_id,
         MappingAuditOutcomeUser.user_audit_id == user_audit_id
-    )).first()
+    )).first() or 0  # no outcome row yet (e.g. newly invited auditor) → default to 0
 
     if evaluated_count == 0:
         return audit_status, "Not Started", completion_percentage
@@ -98,6 +98,29 @@ def get_user_audit_outcome(audit_id: int, user_audit_id: int, session: Session) 
 
 # ============= CRUD OPERATIONS =============
 
+def create_application_from_schema(
+    app_data: 'ApplicationCreate',
+    session: Session
+) -> Application:
+    """Create a new application from a validated schema."""
+    db_entity = Application(
+        name=app_data.name,
+        description=app_data.description,
+        organisation=app_data.organisation,
+        url=app_data.url,
+        access_type=app_data.access_type,
+        testing_evaluation=app_data.testing_evaluation,
+        deployment=app_data.deployment,
+        business_case=app_data.business_case,
+        legal_framework=app_data.legal_framework
+    )
+
+    session.add(db_entity)
+    session.commit()
+    session.refresh(db_entity)
+    return db_entity
+
+
 def create_application_comprehensive(
     name: str,
     description: str,
@@ -109,28 +132,7 @@ def create_application_comprehensive(
     legal_framework: Any,
     session: Session
 ) -> Application:
-    """
-    Create a new application entity.
-
-    This service function handles creating an application with all its metadata.
-
-    Args:
-        name: Application name
-        description: Application description
-        url: Application URL
-        access_type: Access type configuration
-        testing_evaluation: Testing/evaluation configuration
-        deployment: Deployment configuration
-        business_case: Business case information
-        legal_framework: Legal framework information
-        session: Database session
-
-    Returns:
-        Created Application object
-
-    Raises:
-        Exception: If creation fails
-    """
+    """Legacy: Create a new application entity from individual params."""
     db_entity = Application(
         name=name,
         description=description,
@@ -146,6 +148,39 @@ def create_application_comprehensive(
     session.commit()
     session.refresh(db_entity)
     return db_entity
+
+
+def delete_application(
+    application_id: int,
+    session: Session
+) -> Dict[str, Any]:
+    """Delete an application and its audit mappings."""
+    application = session.get(Application, application_id)
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+
+    app_name = application.name
+
+    # Check if any audits are linked
+    audit_mappings = session.exec(
+        select(MappingAuditApplication).where(
+            MappingAuditApplication.application_id == application_id
+        )
+    ).all()
+
+    if audit_mappings:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot delete application '{app_name}' - it has {len(audit_mappings)} linked audit(s). Delete the audits first."
+        )
+
+    session.delete(application)
+    session.commit()
+
+    return {
+        "message": f"Application '{app_name}' deleted successfully",
+        "application_id": application_id
+    }
 
 
 def update_application_comprehensive(

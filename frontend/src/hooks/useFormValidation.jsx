@@ -111,12 +111,17 @@ export const useFormValidation = (validationRules = {}) => {
     return error;
   }, [validateField, setFieldError]);
 
-  // Validate all fields and return validation result
-  const validateAllFields = useCallback((formData) => {
+  // Validate all fields and return validation result.
+  // Optionally pass `fieldsToValidate` to only validate a subset of the rules.
+  const validateAllFields = useCallback((formData, fieldsToValidate = null) => {
     const newErrors = {};
     let isValid = true;
 
-    Object.keys(validationRules).forEach(fieldName => {
+    const fields = Array.isArray(fieldsToValidate) && fieldsToValidate.length > 0
+      ? fieldsToValidate.filter(name => name in validationRules)
+      : Object.keys(validationRules);
+
+    fields.forEach(fieldName => {
       const error = validateField(fieldName, formData[fieldName]);
       if (error) {
         newErrors[fieldName] = error;
@@ -125,10 +130,10 @@ export const useFormValidation = (validationRules = {}) => {
     });
 
     setErrors(newErrors);
-    touchAllFields();
+    touchFields(fields);
 
     return { isValid, errors: newErrors };
-  }, [validationRules, validateField, touchAllFields]);
+  }, [validationRules, validateField, touchFields]);
 
   // Clear all errors and touched state
   const resetValidation = useCallback(() => {

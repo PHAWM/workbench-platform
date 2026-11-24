@@ -7,6 +7,7 @@ import {
 } from '../api/apiService';
 import { useOnboarding } from '../context/onboardingContext';
 import { createDashboardHandlers } from '../handlers/dashboardHandlers';
+import { InfoTooltip } from '../components/ui/toolTip';
 
 const Dashboard = () => {
   let { auditId } = useParams();
@@ -131,9 +132,13 @@ const Dashboard = () => {
                 >
                   {/* Left side: audit info */}
                   <div className="flex-1">
-                    <div className="font-medium text-gray-800 mb-1">{audit.auditName}</div>
+                    <div className="font-medium text-gray-800 mb-1 flex items-center gap-1.5">
+                      {audit.auditName}
+                      
+                    </div>
                     <div className="text-sm text-gray-500">
-                      {audit.instigatorName} ({audit.organizationName})
+                      {audit.organizationName}
+                      <InfoTooltip content="Check the Audit Details in the AI Application Overview." side="bottom" />
                     </div>
                   </div>
 

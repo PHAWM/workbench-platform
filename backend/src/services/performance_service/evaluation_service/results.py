@@ -58,7 +58,7 @@ def get_results_summary_comprehensive(
         )
     ).all()
 
-    # Get audit status with broader user_audit_id filtering
+    # Get audit status for current user only
     base_status = session.exec(
         select(
             MappingEventsAuditStatus,
@@ -69,7 +69,7 @@ def get_results_summary_comprehensive(
         .join(Metrics, MappingEventsAuditStatus.metric_id == Metrics.id)
         .where(
             MappingEventsAuditStatus.audit_id == audit_id,
-            MappingEventsAuditStatus.user_audit_id.in_(relevant_user_audit_ids)
+            MappingEventsAuditStatus.user_audit_id == user_metric_check.id
         )
         .order_by(Events.id)
     ).all()

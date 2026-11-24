@@ -2,10 +2,12 @@ import React, { useState, useEffect, useRef } from 'react'; // Added useRef
 import { ChevronDown, ChevronUp, ArrowLeft, ArrowRight } from 'lucide-react';
 import { Navigation } from '../components/navigation/Navigation';
 import { useParams, useNavigate } from 'react-router-dom';
+import { tenantPath } from '../utils/tenant';
 import { aiApplicationAPI } from '../api/apiService';
 import { isAuditReadOnly } from '../utils/auditUtils';
 import { useApi } from '../context/apiContext';
 import { useOnboarding } from '../context/onboardingContext';
+import { useAuditTimer } from '../hooks/useAuditTimer';
 
 /* Collapsible Section */
 const CollapsibleSection = ({ title, children, isOpen, onToggle, sectionRef }) => (
@@ -82,6 +84,7 @@ const AIApplicationOverview = () => {
   const isReadOnly = isAuditReadOnly(auditStatus);
   const { auditId } = useParams();
   const navigate = useNavigate();
+  useAuditTimer(auditId);
 
   // Trigger onboarding when entering this page from dashboard
   useEffect(() => {
@@ -270,10 +273,10 @@ const AIApplicationOverview = () => {
 
   const handleNavigation = (pageId) => {
     setCurrentPage(pageId);
-    if (pageId === 'dashboard') navigate('/dashboard');
-    else if (pageId === 'profile') navigate('/profile');
-    else if (auditId) navigate(`/${pageId}/${auditId}`);
-    else navigate('/dashboard');
+    if (pageId === 'dashboard') navigate(tenantPath('/dashboard'));
+    else if (pageId === 'profile') navigate(tenantPath('/profile'));
+    else if (auditId) navigate(tenantPath(`/${pageId}/${auditId}`));
+    else navigate(tenantPath('/dashboard'));
   };
 
   return (
@@ -651,13 +654,13 @@ const AIApplicationOverview = () => {
       
       <div className="flex gap-4 justify-between pt-6" data-onboarding="navigation-buttons">
         <button
-          onClick={() => navigate("/dashboard")}
+          onClick={() => navigate(tenantPath('/dashboard'))}
           className="flex items-center gap-2 hover:bg-purple-200 px-4 py-3 rounded-full text-base font-semibold transition-colors border-2 border-purple-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-purple-100"
         >
           <ArrowLeft /> Back to Dashboard
         </button>
         <button
-          onClick={() => navigate(`/audit-criteria/${auditId}`)}
+          onClick={() => navigate(tenantPath(`/audit-criteria/${auditId}`))}
           className="flex items-center gap-2 hover:bg-purple-200 px-4 py-3 rounded-full text-base font-semibold transition-colors border-2 border-purple-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-purple-100"
         >
           Next to Audit Criteria <ArrowRight />

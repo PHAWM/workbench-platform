@@ -12,6 +12,7 @@ const QualitativeMetricForm = ({
   onBackToAssignment,
   preservedData = null,
   availableUnderlyingFeatures = [],
+  availableTargetFeatures = [],
 }) => {
   const [draggedIndex, setDraggedIndex] = useState(null);
   const [scaleLabels, setScaleLabels] = useState([]); // Store label inputs for each scale point
@@ -21,6 +22,7 @@ const QualitativeMetricForm = ({
     description: '',
     definition: '',
     underlyingFeatures: [],
+    targetFeatures: [],
     scalePoints: '0',
     scalePointsArray: [],
     threshold: '',
@@ -182,7 +184,7 @@ const QualitativeMetricForm = ({
       return;
     }
 
-    const metricValues = buildQualitativeMetricValues(formData, availableUnderlyingFeatures);
+    const metricValues = buildQualitativeMetricValues(formData, availableUnderlyingFeatures, availableTargetFeatures);
 
     const completeFormData = {
       ...formData,

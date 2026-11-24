@@ -19,7 +19,7 @@ The application uses Pydantic Settings for configuration management. Settings ca
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `API_V1_STR` | string | `/api/v1` | Base path prefix for all API endpoints |
+| `API_V1_STR` | string | `""` (empty) | Base path prefix for all API endpoints. **Empty by default** — routes are served at the root, e.g. `/login/access-token`, not `/api/v1/login/access-token`. |
 | `PROJECT_NAME` | string | `PHAWM workbench` | Application name used in responses and logs |
 
 ### JWT Authentication
@@ -46,7 +46,7 @@ The application uses Pydantic Settings for configuration management. Settings ca
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `FRONTEND_URL` | string | `http://company.com` | Frontend application URL (used for email links) |
+| `FRONTEND_URL` | string | `http://129.215.193.50:3000` | Frontend application URL (used for email links) |
 | `BACKEND_CORS_ORIGINS` | list | `["http://localhost:3000"]` | Allowed CORS origins |
 
 ---
@@ -57,7 +57,9 @@ Create a `.env` file in the project root with your configuration:
 
 ```env
 # API Settings
-API_V1_STR=/api/v1
+# Leave unset (empty) unless you intend to serve the API under a prefix —
+# setting it changes the path of every endpoint.
+# API_V1_STR=
 PROJECT_NAME=PHAWM Workbench
 
 # JWT Settings (REQUIRED in production)

@@ -2,14 +2,16 @@ import { useState, useEffect } from 'react';
 import { Navigation } from '../components/navigation/Navigation';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../components/auth/AuthContext';
+import { tenantPath } from '../utils/tenant';
 import { useOnboarding } from '../context/onboardingContext';
-import { User } from 'lucide-react';
+import { User, Settings } from 'lucide-react';
 import {
   validatePasswordData,
   loadUserProfile as loadUserProfileHandler,
   updateUserProfile,
   changePassword
 } from '../handlers/auditorProfileHandlers';
+import { demoAPI } from '../api/apiService';
 
 const ProfileInterface = () => {
   const [profile, setProfile] = useState({
@@ -25,7 +27,7 @@ const ProfileInterface = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [message, setMessage] = useState('');
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [passwordData, setPasswordData] = useState({
     oldPassword: '',
@@ -37,6 +39,10 @@ const ProfileInterface = () => {
 
   const [currentPage, setCurrentPage] = useState('profile');
   const [showTutorialReset, setShowTutorialReset] = useState(false);
+  const [showDemoReset, setShowDemoReset] = useState(false);
+  const [isDemoResetting, setIsDemoResetting] = useState(false);
+
+  const isDemo = import.meta.env.VITE_IS_DEMO === 'true';
 
   const navigate = useNavigate();
   const { resetOnboarding } = useOnboarding();
@@ -57,7 +63,7 @@ const ProfileInterface = () => {
   const handleLogout = async () => {
     try {
       await logout();
-      window.location.href = '/login';
+      navigate('/login');
     } catch (error) {
       console.error('Logout failed:', error);
     }
@@ -111,7 +117,7 @@ const ProfileInterface = () => {
     const handleNavigation = (pageId) => {
     setCurrentPage(pageId);
     if (pageId === 'dashboard') {
-        navigate('/dashboard');
+        navigate(tenantPath('/dashboard'));
     }
   };
 
@@ -174,6 +180,18 @@ const ProfileInterface = () => {
           </div>
           <div className="mb-6">
             <h2 className="text-lg font-semibold text-gray-800">Demographics Details</h2>
+            <p className="text-xs text-gray-500 mt-1 mb-3">
+              Demographic information is collected for research and reporting purposes only. It is kept confidential and handled in compliance with applicable data protection regulations. Providing this information is optional. See our{' '}
+              <a
+                href="https://phawm.org/privacy-notice/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-purple hover:font-bold transition-colors"
+              >
+                Privacy Notice
+              </a>
+              .
+            </p>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Gender</label>
@@ -185,13 +203,15 @@ const ProfileInterface = () => {
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Ethnicity</label>
+              {/* Ethnicity field — hidden visually, kept as placeholder only */}
+              <div className="hidden">
                 <input
                   type="text"
                   value={profile.ethnicity}
                   onChange={(e) => handleInputChange('ethnicity', e.target.value)}
-                  className="w-full px-3 py-2 bg-transparent border-b border-gray-600 focus:border-purple-600 outline-none text-gray-800"
+                  placeholder="Ethnicity"
+                  tabIndex={-1}
+                  aria-hidden="true"
                 />
               </div>
               <div>
@@ -254,6 +274,37 @@ const ProfileInterface = () => {
                   Logout
                 </button>
               </div>
+              {user?.is_superuser && (
+                <div className="flex gap-4">
+                  <button
+                    onClick={() => navigate(tenantPath('/admin'))}
+                    className="flex-1 bg-purple-100 hover:bg-purple-200 px-8 py-2 rounded-full text-base font-semibold transition-colors border-2 border-purple-200"
+                  >
+                    Admin Panel
+                  </button>
+                </div>
+              )}
+              {isDemo && (
+                <div className="flex gap-4">
+                  <button
+                    onClick={async () => {
+                      setIsDemoResetting(true);
+                      try {
+                        await demoAPI.resetDemo();
+                        setShowDemoReset(true);
+                        setTimeout(() => setShowDemoReset(false), 3000);
+                      } catch (err) {
+                        setMessage(err.message || 'Failed to reset demo');
+                      }
+                      setIsDemoResetting(false);
+                    }}
+                    disabled={isDemoResetting}
+                    className="flex-1 bg-purple-100 hover:bg-purple-200 px-8 py-2 rounded-full text-base font-semibold transition-colors border-2 border-purple-200"
+                  >
+                    {isDemoResetting ? 'Resetting...' : 'Reset Demo'}
+                  </button>
+                </div>
+              )}
           </div>
         </div>
 
@@ -350,6 +401,18 @@ const ProfileInterface = () => {
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
             </svg>
             <span className="font-semibold">Tutorial reset! It will show when you enter an audit.</span>
+          </div>
+        </div>
+      )}
+
+      {/* Success Toast for Demo Reset */}
+      {showDemoReset && (
+        <div className="fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-fade-in">
+          <div className="flex items-center gap-2">
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+            </svg>
+            <span className="font-semibold">Demo reset successfully!</span>
           </div>
         </div>
       )}

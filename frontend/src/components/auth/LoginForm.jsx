@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from './AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { tenantPath } from '../../utils/tenant';
 import logo from "src/FullLogoTransparent.png"
 
 const LoginForm = () => {
@@ -28,7 +29,7 @@ const LoginForm = () => {
     const result = await login(formData);
 
     if (result.success) {
-    navigate('/dashboard');
+      navigate(tenantPath('/dashboard'));
     } else {
     setError(result.error);
     }
@@ -83,9 +84,21 @@ const LoginForm = () => {
           {/* Add the link to the forgot password page here! */}
           <p
             style={{ marginTop: '12px', textDecoration: 'underline', cursor: 'pointer' }}
-            onClick={() => navigate('/forgot-password')}
+            onClick={() => navigate(tenantPath('/forgot-password'))}
           >
             Forgot password?
+          </p>
+          <p className="text-base mt-6 px-4 leading-relaxed">
+            By logging in, you acknowledge that
+            your data is processed in accordance with our{' '}
+            <a
+              href="https://phawm.org/privacy-notice/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-purple hover:font-bold transition-colors"
+            >
+              Privacy Notice
+            </a>
           </p>
         </form>
         </div>

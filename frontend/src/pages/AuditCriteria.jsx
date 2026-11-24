@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { tenantPath } from '../utils/tenant';
 import { Plus, ArrowLeft, ArrowRight } from 'lucide-react';
 
 // Components
@@ -21,12 +22,14 @@ import { createAuditHandlers } from '../handlers/auditHandlers';
 import { hasAnySelectedMetrics, isAuditReadOnly, getSelectedMetricsWithoutThreshold } from '../utils/auditUtils';
 import { useApi } from '../context/apiContext';
 import { useToast } from '../hooks/useToast';
+import { useAuditTimer } from '../hooks/useAuditTimer';
 import { useOnboarding } from '../context/onboardingContext';
 import { createAuditCriteriaHandlers } from '../handlers/auditCriteriaHandlers';
 
 const AuditCriteriaDashboard = () => {
   const { auditId } = useParams();
   const navigate = useNavigate();
+  useAuditTimer(auditId);
   const toast = useToast();
   const { checkAndStartOnboarding } = useOnboarding();
 
@@ -113,7 +116,7 @@ const AuditCriteriaDashboard = () => {
   );
 
   // Navigation check
-  if (!auditId) navigate('/dashboard');
+  if (!auditId) navigate(tenantPath('/dashboard'));
   const hasSelectedMetrics = hasAnySelectedMetrics(auditData.events);
 
   // Determine help context based on current modal/form state

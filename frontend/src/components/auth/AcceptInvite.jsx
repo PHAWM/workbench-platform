@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { tenantPath } from '../../utils/tenant';
 import logo from "src/FullLogoTransparent.png"
 import { authAPI } from '../../api/apiService';
 
@@ -68,7 +69,7 @@ const AcceptInvite = () => {
     try {
       await authAPI.setPasswordWithInvite(inviteData.token, formData.password);
       // Invitation accepted successfully, redirect to login
-      navigate('/login', {
+      navigate(tenantPath('/login'), {
         state: { message: 'Account created successfully! You can now log in.' }
       });
     } catch (error) {
@@ -103,7 +104,7 @@ const AcceptInvite = () => {
             <div className="text-red-600 text-5xl mb-4">✗</div>
             <p className="text-red-600 font-semibold text-lg mb-4">{error}</p>
             <button
-              onClick={() => navigate('/login')}
+              onClick={() => navigate(tenantPath('/login'))}
               className="bg-purple-100 hover:bg-purple-200 px-8 py-2 rounded-full text-base font-semibold transition-colors border-2 border-purple-200"
             >
               Go to Login
@@ -164,7 +165,7 @@ const AcceptInvite = () => {
             </button>
             <p
               style={{ marginTop: '12px', textDecoration: 'underline', cursor: 'pointer' }}
-              onClick={() => navigate('/login')}
+              onClick={() => navigate(tenantPath('/login'))}
             >
               Already have an account? Log in
             </p>

@@ -1,0 +1,229 @@
+services:
+
+  postgres-mt:
+    image: postgres:15
+    container_name: postgres-db-mt
+    restart: unless-stopped
+    env_file:
+      - ../deploy/.env.multi-tenant
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_HOST_AUTH_METHOD=trust
+    ports:
+      - "5433:5432"                          # 5433 to avoid clash with single-tenant on 5432
+    volumes:
+      - postgres-mt-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      retries: 5
+      start_period: 30s
+      timeout: 10s
+    networks:
+      - backend-network
+
+  prestart:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: prestart-mt
+    working_dir: /app
+    depends_on:
+      postgres-mt:
+        condition: service_healthy
+      rustfs-mt:
+        condition: service_started
+    command:
+      - bash
+      - -c
+      - |
+        set -e
+        pip install psycopg2-binary --quiet
+        python scripts/create_db_if_not_exists.py
+        alembic upgrade head
+        python scripts/clean_public_schema.py
+        python scripts/migrations/init_default_tenant.py
+    env_file:
+      - ../deploy/.env.multi-tenant
+    environment:
+      - PYTHONPATH=/app
+      - ENV_FILE=deploy/.env.multi-tenant
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_HOST=postgres-mt
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB}
+      - S3_ENDPOINT_URL=http://rustfs-mt:9000
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-admin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-admin}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME:-workbench}
+      - S3_REGION=${S3_REGION:-us-east-1}
+      - STORAGE_BACKEND=s3
+    networks:
+      - backend-network
+    restart: "no"
+
+  api-mt:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: api-mt
+    ports:
+      - "8001:8080"                          # 8001 to avoid clash with single-tenant on 8000
+    volumes:
+      - ../:/app
+    restart: unless-stopped
+    depends_on:
+      postgres-mt:
+        condition: service_healthy
+      prestart:
+        condition: service_completed_successfully
+    env_file:
+      - ../deploy/.env.multi-tenant
+    environment:
+      - PYTHONPATH=/app
+      - ENV_FILE=deploy/.env.multi-tenant
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_HOST=postgres-mt
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB}
+      - RESEND_API_KEY=${RESEND_API_KEY}
+      - FRONTEND_URL=${FRONTEND_URL}
+      - IS_DEMO=${IS_DEMO:-FALSE}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - JWT_REFRESH_SECRET_KEY=${JWT_REFRESH_SECRET_KEY}
+      - STORAGE_BACKEND=s3
+      - S3_ENDPOINT_URL=http://rustfs-mt:9000
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-admin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-admin}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME:-workbench}
+      - S3_REGION=${S3_REGION:-us-east-1}
+    networks:
+      - backend-network
+
+  rustfs-mt:
+    image: rustfs/rustfs:latest
+    container_name: rustfs-mt
+    command: server /data --console-address ":9001"
+    environment:
+      - RUSTFS_ROOT_USER=${S3_ACCESS_KEY:-admin}
+      - RUSTFS_ROOT_PASSWORD=${S3_SECRET_KEY:-admin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - rustfs-mt-data:/data
+    restart: unless-stopped
+    networks:
+      - backend-network
+
+  sam-api:
+    platform: linux/arm64
+    build:
+      context: ../../../../  # Points to workbench-backend root
+      dockerfile: src/services/model_service/api/SAM/Dockerfile
+      args:
+        BUILDPLATFORM: linux/arm64
+    container_name: sam-attachment-monitor
+    environment:
+      - PYTHONPATH=/app
+      - S3_ENDPOINT_URL=http://rustfs-mt:9000
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-admin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-admin}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME:-workbench}
+      - S3_REGION=${S3_REGION:-us-east-1}
+    ports:
+      - "8002:8002"
+    restart: unless-stopped
+    networks:
+      - backend-network
+
+  universal-llm-api:
+    platform: linux/arm64
+    build:
+      context: ../  # Points to workbench-backend root
+      dockerfile: src/services/model_service/api/Universal/Dockerfile
+    container_name: universal-llm-inference
+    environment:
+      - PYTHONPATH=/app
+      # API keys are provided per-request, not as env vars
+    ports:
+      - "8003:8003"
+    restart: unless-stopped
+    networks:
+      - backend-network
+
+  annif-api:
+    platform: linux/arm64
+    build:
+      context: ../  # Points to workbench-backend root
+      dockerfile: src/services/model_service/api/ANNIF/Dockerfile
+    container_name: annif-subject-indexing
+    environment:
+      - PYTHONPATH=/app
+    ports:
+      - "8004:8004"
+    restart: unless-stopped
+    networks:
+      - backend-network
+
+  pyterrier-rag-api:
+    platform: linux/arm64
+    build:
+      context: ../
+      dockerfile: src/services/model_service/api/PyTerrier/Dockerfile
+    container_name: pyterrier-rag
+    environment:
+      - PYTHONPATH=/app
+      - S3_ENDPOINT_URL=http://rustfs-mt:9000
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-admin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-admin}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME:-workbench}
+      - S3_REGION=${S3_REGION:-us-east-1}
+      - LLM_MCP_URL=http://universal-llm-inference:8003
+      - PYTERRIER_INDEX_DIR=/data/indexes
+      # Keep the ir_datasets / PyTerrier caches on the volumes below rather than
+      # the container's writable layer (see volumes:).
+      - IR_DATASETS_HOME=/data/ir_datasets
+      - PYTERRIER_HOME=/data/pyterrier
+    ports:
+      - "8006:8006"
+    volumes:
+      - pyterrier-indexes:/data/indexes
+      # Benchmark corpora are LARGE (trec-pm clinical trials is ~1.2GB). Without
+      # a volume they live in the container's writable layer and are re-downloaded
+      # every time the container is rebuilt or recreated.
+      - pyterrier-irds:/data/ir_datasets
+      # Terrier's jar-with-dependencies (~100MB) is fetched on first pt.init().
+      - pyterrier-home:/data/pyterrier
+    restart: unless-stopped
+    networks:
+      - backend-network
+    # depends_on:
+      # - rustfs
+      # - universal-llm-api
+
+volumes:
+  postgres-mt-data:
+  rustfs-mt-data:
+    driver: local
+  pgadmin-mt-data:
+  pyterrier-indexes:
+    driver: local
+  # Upstream benchmark corpora (ir_datasets) and Terrier's jars. These are large,
+  # public, tenant-agnostic reference data — deliberately NOT in rustfs: PyTerrier
+  # memory-maps the cached corpus from local disk ("Opening .../corpus.pklz4 with
+  # direct file access"), which an object store cannot serve, and a shared corpus
+  # does not belong inside per-tenant buckets. Tenant corpus documents DO go to
+  # rustfs — see _cache_docs_to_s3.
+  pyterrier-irds:
+    driver: local
+  pyterrier-home:
+    driver: local
+
+networks:
+  backend-network:
+    name: backend-network

@@ -7,11 +7,10 @@ from sqlalchemy import or_
 from src.models import *
 
 
-def get_underlying_features_for_audit(audit_id: int, user_id: int, session: Session) -> List[Dict[str, Any]]:
+def get_underlying_features_for_audit(audit_id: int, user_id: int, session: Session) -> Dict[str, Any]:
     """
-    Get underlying features available for a specific audit.
-    Features come from the audit's DatasetMetadata (stored in storage/audits/audit_{audit_id}/input/),
-    NOT from OutputEvaluationData.
+    Get underlying features and target features available for a specific audit.
+    Returns both underlying features (from DatasetMetadata) and target features.
     """
     # Verify user has access to this audit
     user_audit = session.exec(
@@ -31,56 +30,106 @@ def get_underlying_features_for_audit(audit_id: int, user_id: int, session: Sess
         )
     ).first()
 
-    if not audit_pipeline_mapping:
-        return []
+    underlying_features = []
 
-    # Get the DatasetMetadata from the audit
-    dataset_mapping = session.exec(
-        select(MappingModelDatasetAudit).where(
-            MappingModelDatasetAudit.auditpipeline == audit_pipeline_mapping.audit_pipeline
-        )
-    ).first()
+    if audit_pipeline_mapping:
+        # Get the DatasetMetadata from the audit
+        dataset_mapping = session.exec(
+            select(MappingModelDatasetAudit).where(
+                MappingModelDatasetAudit.auditpipeline == audit_pipeline_mapping.audit_pipeline
+            )
+        ).first()
 
-    if not dataset_mapping:
-        return []
+        if dataset_mapping:
+            # Get the InputDatasetMetadata to access datatypes (which contains ranges)
+            input_dataset_metadata = session.exec(
+                select(InputDatasetMetadata).where(
+                    InputDatasetMetadata.dataset_metadata_id == dataset_mapping.dataset_id
+                )
+            ).first()
 
-    # Get the InputDatasetMetadata to access datatypes (which contains ranges)
-    input_dataset_metadata = session.exec(
-        select(InputDatasetMetadata).where(
-            InputDatasetMetadata.dataset_metadata_id == dataset_mapping.dataset_id
-        )
-    ).first()
+            datatypes = {}
+            if input_dataset_metadata and input_dataset_metadata.datatypes:
+                datatypes = input_dataset_metadata.datatypes
 
-    # Extract datatypes for range information
-    datatypes = {}
-    if input_dataset_metadata and input_dataset_metadata.datatypes:
-        datatypes = input_dataset_metadata.datatypes
+            # Get features mapped to this DatasetMetadata
+            feature_mappings = session.exec(
+                select(MappingDatasetFeatures).where(
+                    MappingDatasetFeatures.dataset_metadata_id == dataset_mapping.dataset_id
+                )
+            ).all()
 
-    # Get features mapped to this DatasetMetadata
-    feature_mappings = session.exec(
-        select(MappingDatasetFeatures).where(
-            MappingDatasetFeatures.dataset_metadata_id == dataset_mapping.dataset_id
-        )
+            for mapping in feature_mappings:
+                feature = session.get(UnderlyingFeatures, mapping.underlying_feature_id)
+                if feature:
+                    feature_dict = {
+                        "id": feature.id,
+                        "feature_name": feature.feature_name,
+                    }
+                    if feature.feature_name in datatypes:
+                        feature_dict["range"] = datatypes[feature.feature_name]
+                    underlying_features.append(feature_dict)
+
+    # Get user-defined underlying features for this audit (created by auditors,
+    # mapped to their audit participation via MappingUserAuditFeatures rather
+    # than to the dataset via MappingDatasetFeatures).
+    user_underlying_mappings = session.exec(
+        select(MappingUserAuditFeatures, UnderlyingFeatures)
+        .join(UnderlyingFeatures)
+        .where(MappingUserAuditFeatures.user_audit_id == user_audit.id)
     ).all()
 
-    # Get the full feature details with range information
-    features = []
-    for mapping in feature_mappings:
-        feature = session.get(UnderlyingFeatures, mapping.underlying_feature_id)
-        if feature:
-            feature_dict = {
-                "id": feature.id,
-                "feature_name": feature.feature_name,
-                "feature_description": feature.feature_description
-            }
+    user_underlying_features = [
+        {
+            "id": f.id,
+            "feature_name": f.feature_name,
+        }
+        for _, f in user_underlying_mappings
+    ]
 
-            # Add range information from datatypes if available
-            if feature.feature_name in datatypes:
-                feature_dict["range"] = datatypes[feature.feature_name]
+    # Get all target features
+    target_features = [
+        {
+            "id": t.id,
+            "target_feature": t.target_feature,
+            "function_name": t.function_name,
+        }
+        for t in session.exec(select(TargetFeatures)).all()
+    ]
 
-            features.append(feature_dict)
+    # Get user-defined target features for this audit
+    user_target_mappings = session.exec(
+        select(MappingUserAuditTargetFeatures, TargetFeatures)
+        .join(TargetFeatures)
+        .where(MappingUserAuditTargetFeatures.user_audit_id == user_audit.id)
+    ).all()
 
-    return features
+    user_target_features = [
+        {
+            "id": t.id,
+            "target_feature": t.target_feature,
+            "function_name": t.function_name,
+        }
+        for _, t in user_target_mappings
+    ]
+
+    return {
+        "audit_id": audit_id,
+        "underlying_features": {
+            "dataset_features": underlying_features,
+            "user_features": user_underlying_features,
+            "total_dataset": len(underlying_features),
+            "total_user": len(user_underlying_features),
+            "total": len(underlying_features) + len(user_underlying_features),
+        },
+        "target_features": {
+            "system_features": target_features,
+            "user_features": user_target_features,
+            "total_system": len(target_features),
+            "total_user": len(user_target_features),
+            "total": len(target_features) + len(user_target_features),
+        },
+    }
 
 
 def get_user_categories_for_audit(audit_id: int, user_id: int, session: Session) -> Dict[str, Any]:
@@ -116,8 +165,15 @@ def get_user_categories_for_audit(audit_id: int, user_id: int, session: Session)
         for mapping, category in user_category_mappings
     ]
 
-    # Get system categories
-    user_category_ids = [cat["id"] for cat in user_categories]
+    # Get system categories.
+    # Exclude any category that is mapped in MappingUserCategories (for any user),
+    # so user-specific categories never leak into the system bucket.
+    mapped_category_ids = set(
+        session.exec(
+            select(MappingUserCategories.category_id)
+        ).all()
+    )
+
     all_system_categories = session.exec(select(EventsCategory)).all()
 
     system_categories = [
@@ -128,7 +184,7 @@ def get_user_categories_for_audit(audit_id: int, user_id: int, session: Session)
             "source": "system"
         }
         for category in all_system_categories
-        if category.id not in user_category_ids
+        if category.id not in mapped_category_ids
     ]
 
     return {

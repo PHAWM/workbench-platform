@@ -3,20 +3,21 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, LabelList, ResponsiveContainer, R
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { Navigation } from '../components/navigation/Navigation';
 import { useParams, useNavigate } from 'react-router-dom';
+import { tenantPath } from '../utils/tenant';
 import { createAuditHandlers } from '../handlers/auditHandlers';
 import { useAuditData } from '../hooks/useAuditData';
 import { checkEventMetricStatus, isAuditReadOnly, formatThreshold } from '../utils/auditUtils';
 import { useApi } from '../context/apiContext';
 import { useToast } from '../hooks/useToast';
 import { useSessionStorage } from '../hooks/useSessionStorage';
+import { useAuditTimer } from '../hooks/useAuditTimer';
 import OutputEvaluationScreen from './OutputEvaluationScreen';
 import { useOnboarding } from '../context/onboardingContext';
 import { MetricVisualization, detectOutputType } from '../components/visualizations';
 
 import {
   performanceAPI,
-  evaluationAPI,
-  getAccessTypeLabel
+  evaluationAPI
 } from '../api/apiService';
 import {
   validateNotes,
@@ -32,6 +33,7 @@ const PerformanceAnalysis = () => {
   const [isVisible, setIsVisible] = useState(true);
   const { auditId } = useParams();
   const navigate = useNavigate();
+  useAuditTimer(auditId);
   const toast = useToast();
   const { checkAndStartOnboarding } = useOnboarding();
 
@@ -63,8 +65,8 @@ const PerformanceAnalysis = () => {
     if (activeTab === 'overview' || !selectedMetricForAnalysis) {
       return PURPOSE_BOX_MESSAGES.default;
     }
-    // (accessTypeLabel === "Grey Box" || accessTypeLabel === "White Box") && selectedMetricForAnalysis &&
-    if ((accessTypeLabel === 'Grey Box' || accessTypeLabel === 'White Box')&& selectedMetricForAnalysis ) {
+    // Translucent (1) and Transparent (2) show output evaluation panel
+    if ((accessType == 1 || accessType == 2) && selectedMetricForAnalysis ) {
       return PURPOSE_BOX_MESSAGES.greyWhiteBox;
     }
     else {
@@ -285,7 +287,7 @@ const PerformanceAnalysis = () => {
 
         // Check if there are any audit criteria - if not, redirect to audit-criteria
         if (!summaryData.audit_criteria || summaryData.audit_criteria.length === 0) {
-          navigate(`/audit-criteria/${auditId}`);
+          navigate(tenantPath(`/audit-criteria/${auditId}`));
           return;
         }
 
@@ -871,8 +873,8 @@ const PerformanceAnalysis = () => {
             <h1 className="text-xl font-semibold text-gray-800">
               Performance Analysis: {selectedMetricForAnalysis ? `${selectedMetricForAnalysis.eventName} - ${selectedMetricForAnalysis.name}` : '< Select a Metric >'}
             </h1>
-            {/* Show Perform Output Evaluation only for Grey or White Box */}
-            {(accessTypeLabel === "Grey Box" || accessTypeLabel === "White Box") && selectedMetricForAnalysis && (
+            {/* Show Perform Output Evaluation only for Translucent or Transparent */}
+            {(accessType == 1 || accessType == 2) && selectedMetricForAnalysis && (
               <div className="flex flex-col">
                 <h2 className="text-xl font-semibold text-gray-800 mb-2">
                   Test your own data:
@@ -891,7 +893,7 @@ const PerformanceAnalysis = () => {
           {selectedMetricForAnalysis && (
           <div className="flex gap-6 mb-6">
             {/* Original Visualization */}
-          <div className={`${(accessTypeLabel === "Grey Box" || accessTypeLabel === "White Box") ? 'w-1/2' : 'w-full'}`}>
+          <div className={`${(accessType == 1 || accessType == 2) ? 'w-1/2' : 'w-full'}`}>
             {selectedMetricForAnalysis.metric_type.toLowerCase() === "quantitative" ? (
               // Quantitative Metric Visualization - supports all output types
               <div className="bg-white border border-purple-300 rounded-2xl p-4 shadow-sm h-full">
@@ -926,6 +928,21 @@ const PerformanceAnalysis = () => {
                         <div className="text-lg font-bold text-purple-700">
                           {selectedMetricForAnalysis.threshold ? `${selectedMetricForAnalysis.threshold}%` : "5%"}
                         </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Threshold box for all other cases: errors/no data, confusion matrix, single value, etc.
+                    Shown whenever the grouped-comparison threshold box above is not rendered, so the
+                    threshold is always visible even when there is no output data. */}
+                {!(!outputError && !selectedMetricForAnalysis.output?.confusion_matrix &&
+                   detectOutputType(selectedMetricForAnalysis.output) === 'grouped_comparison' && chartData.length > 0) && (
+                  <div className="mb-6 flex justify-end">
+                    <div className="bg-white border border-purple-300 rounded-lg p-3">
+                      <h4 className="text-sm font-semibold text-gray-800 mb-1">Metric Threshold:</h4>
+                      <div className="text-lg font-bold text-purple-700">
+                        {selectedMetricForAnalysis.threshold ? `${selectedMetricForAnalysis.threshold}%` : "5%"}
                       </div>
                     </div>
                   </div>
@@ -1087,8 +1104,8 @@ const PerformanceAnalysis = () => {
             )}
           </div>
 
-            {/* Output Evaluation Bar Chart - Always reserve space for Grey/White Box */}
-            {(accessTypeLabel === "Grey Box" || accessTypeLabel === "White Box") && (
+            {/* Output Evaluation Bar Chart - Always reserve space for Translucent/Transparent */}
+            {(accessType == 1 || accessType == 2) && (
               <div className="w-1/2">
                 <div className="bg-white border border-purple-300 rounded-2xl p-4 shadow-sm h-full">
                   <h3 className="text-lg font-semibold text-gray-800 mb-2">Further Analysis</h3>
@@ -1237,9 +1254,6 @@ const PerformanceAnalysis = () => {
       </div>
     </div>
   );
-  // Get access type label
-  const accessTypeLabel = getAccessTypeLabel(accessType);
-
   // Determine help context based on current view state
   const getHelpContext = () => {
     if (showOutputEvaluation) {

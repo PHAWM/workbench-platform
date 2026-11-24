@@ -107,20 +107,15 @@ export const useAuditData = (auditId) => {
       if (featuresData.status === 'fulfilled' && featuresData.value) {
         const response = featuresData.value;
 
-        // Combine user_features and dataset_features for distinguishing factors
-        const userUnderFeatures = response.underlying_features.user_features || [];
-        const datasetUnderFeatures = response.underlying_features.dataset_features || [];
-        allUnderlyingFeatures = [...userUnderFeatures, ...datasetUnderFeatures];
+        // Underlying features (Distinguishing Factors): dataset_features + user_features
+        const datasetUnderFeatures = response.underlying_features?.dataset_features || [];
+        const userUnderFeatures = response.underlying_features?.user_features || [];
+        allUnderlyingFeatures = [...datasetUnderFeatures, ...userUnderFeatures];
 
-        // Get targets
-        const userTargetFeatures = response.target_features.user_features || [];
-        const datasetTargetFeatures = response.target_features.dataset_features || [];
-        allTargetFeatures = [...userTargetFeatures, ...datasetTargetFeatures];
-
-        // // console.log('Loaded features:', {
-        //   underlying: { user: userUnderFeatures.length, dataset: datasetUnderFeatures.length, total: allUnderlyingFeatures.length },
-        //   target: { user: userTargetFeatures.length, dataset: datasetTargetFeatures.length, total: allUnderlyingFeatures.length }
-        // });
+        // Target features: system_features + user_features
+        const systemTargetFeatures = response.target_features?.system_features || [];
+        const userTargetFeatures = response.target_features?.user_features || [];
+        allTargetFeatures = [...systemTargetFeatures, ...userTargetFeatures];
       }
 
       updateState({
@@ -134,6 +129,33 @@ export const useAuditData = (auditId) => {
     }
   };
 
+  // Fetch only the features (target + underlying). loadAuditData already fetches
+  // entities and categories, so on initial mount we avoid re-requesting those here.
+  const loadFeatures = async () => {
+    try {
+      const featuresData = await eventsAPI.getUnderlyingFeatures(parseInt(auditId));
+
+      let allUnderlyingFeatures = [];
+      let allTargetFeatures = [];
+      if (featuresData) {
+        const datasetUnderFeatures = featuresData.underlying_features?.dataset_features || [];
+        const userUnderFeatures = featuresData.underlying_features?.user_features || [];
+        allUnderlyingFeatures = [...datasetUnderFeatures, ...userUnderFeatures];
+
+        const systemTargetFeatures = featuresData.target_features?.system_features || [];
+        const userTargetFeatures = featuresData.target_features?.user_features || [];
+        allTargetFeatures = [...systemTargetFeatures, ...userTargetFeatures];
+      }
+
+      updateState({
+        availableUnderlyingFeatures: allUnderlyingFeatures,
+        availableTargetFeatures: allTargetFeatures
+      });
+    } catch (err) {
+      console.error('Error loading features:', err);
+    }
+  };
+
   const reloadData = async () => {
     await Promise.all([
       loadAuditData(),
@@ -143,8 +165,11 @@ export const useAuditData = (auditId) => {
 
   useEffect(() => {
     if (auditId) {
+      // loadAuditData covers events/entities/categories/metrics; loadFeatures covers
+      // the remaining feature lists. This avoids the duplicate entities/categories
+      // requests that firing loadAuditData + loadMetadata together previously caused.
       loadAuditData();
-      loadMetadata();
+      loadFeatures();
     }
   }, [auditId]);
 

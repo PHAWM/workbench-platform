@@ -12,7 +12,8 @@ theme:
 nav:
   - Overview:
     - index.md
-  - Application:
+  - Methodology: https://phawm.org/wp-content/uploads/2026/04/Participatory-AI-Auditing_Methodology_V1.2.pdf
+  - User Manual:
     - frontend/index.md
     - frontend/dashboard/dashboard.md
     - frontend/ai_application/ai_application_overview.md
@@ -26,6 +27,11 @@ nav:
       - frontend/performance_analysis/performance_analysis.md
       - frontend/performance_analysis/output_evaluation.md
     - frontend/audit_recommedation/audit_recommendation.md
+  - Deployment:
+    - setup/index.md
+    - setup/installation.md
+    - setup/multi_tenant_deployment.md
+    - backend/multi_tenancy.md
   - Backend:
     - backend/index.md
     - backend/configuration.md

@@ -5,13 +5,15 @@ from sqlmodel import Session, select
 from pathlib import Path
 
 from src.models import *
+from src.services.utility_service.s3_storage_service import get_storage_manager, S3StorageManager
 
 
 def delete_dataset_file_comprehensive(
     audit_id: int,
     filename: str,
     current_user_id: str,
-    session: Session
+    session: Session,
+    tenant_id: str | None = None
 ) -> Dict[str, Any]:
     """
     Delete an uploaded dataset file for a specific audit and user.
@@ -73,11 +75,18 @@ def delete_dataset_file_comprehensive(
         )
 
     mapping, eval_data = file_mapping
-    file_path = Path(eval_data.location)
 
     # Delete the physical file if it exists
-    if file_path.exists():
-        file_path.unlink()
+    sm = get_storage_manager(tenant_id)
+    if isinstance(sm, S3StorageManager):
+        try:
+            sm.delete_file(eval_data.location)
+        except Exception:
+            pass
+    else:
+        file_path = Path(eval_data.location)
+        if file_path.exists():
+            file_path.unlink()
 
     # Delete database records
     session.delete(mapping)

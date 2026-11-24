@@ -1974,54 +1974,57 @@ input[type="range"]::-moz-range-thumb {
   padding: 0 0rem;
 }
 
+/* Segmented control: a soft grey track holding the tabs, with the active tab
+   rendered as a white "thumb" that appears to float above the track. */
 .react-tabs__tab-list {
-  /* border-bottom: 2px solid #e9d5ff; */
   margin-bottom: 1.5rem;
-  padding-left: 0;
-  display: flex;
-  gap: 0;
+  padding: 0.25rem;
+  display: inline-flex;
+  gap: 0.25rem;
   width: 100%;
+  background-color: #f3f0f7;
+  border: 1px solid #ede9f3;
+  border-radius: 0.875rem;
 }
 
 .react-tabs__tab {
   flex: 1;
   text-align: center;
-  border: 2px solid transparent;
-  /* border-bottom: none; */
-  bottom: -2px;
-  position: relative;
+  border: none;
   list-style: none;
-  padding: 0.75rem 1.5rem;
-  font-size: 1rem;
+  padding: 0.5rem 1.25rem;
+  font-size: 0.9375rem;
   font-weight: 600;
   cursor: pointer;
-  background-color: #DBB6EA;
-  color: #6b21a8;
-  border-radius: 1rem 1rem 1rem 1rem;
-  transition: all 0.2s ease;
+  background-color: transparent;
+  color: #7c748a;
+  border-radius: 0.625rem;
+  transition: color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .react-tabs__tab:hover {
-  background-color: #e9d5ff;
+  color: #6b21a8;
+  background-color: rgba(255, 255, 255, 0.55);
 }
 
-.react-tabs__tab--selected {
-  background-color: #DBB6EA;
-  border-color: #a855f7;
-}
-
+.react-tabs__tab--selected,
 .react-tabs__tab--selected:hover {
-  background-color: #e9d5ff;
+  background-color: #DBB6EA;
+  color: #6b21a8;
+  box-shadow: 0 1px 2px rgba(76, 29, 149, 0.10), 0 2px 6px rgba(76, 29, 149, 0.08);
 }
 
-.react-tabs__tab:focus {
+.react-tabs__tab:focus-visible {
   outline: none;
-  /* box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.3); */
+  box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.45);
 }
 
-.react-tabs__tab--disabled {
-  color: #d1d5db;
+.react-tabs__tab--disabled,
+.react-tabs__tab--disabled:hover {
+  color: #cbc6d3;
+  background-color: transparent;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
 .react-tabs__tab-panel {

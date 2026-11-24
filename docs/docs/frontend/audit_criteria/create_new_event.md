@@ -1,6 +1,10 @@
 # Create New Event
 
-<img src="media/page_create_new_events.png" alt="Image - Create New Event" width="1000" style="display: block; margin: 0 auto">
+<div style="position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; max-width: 800px; margin: 0 auto 1.5em;">
+  <iframe src="https://www.youtube.com/embed/bB1HbmM7GXE?start=549" title="PHAWM Workbench — Create New Event" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"></iframe>
+</div>
+
+<img src="/media/page_create_new_events.png" alt="Image - Create New Event" width="600" style="display: block; margin: 0 auto">
 
 **Event Name:**  Decide on a name that represents what can or does happen when using the AI Application 
 
@@ -22,7 +26,7 @@
 
 Once you have provided all the relevant information for the new Event you wish to create, you will be given the opportunity to add some of the existing metrics to that event. Alternatively, or as well as, you can select + Create New Metric if you think different metric would be helpful. 
 
-<img src="media/page_create_new_events_2.png" alt="Image - Events - Assign Metrics" width="1000" style="display: block; margin: 0 auto">
+<img src="/media/page_create_new_events_2.png" alt="Image - Events - Assign Metrics" width="600" style="display: block; margin: 0 auto">
 
 Once you have reviewed existing events, adjusted thresholds for existing metrics and added any new events or metrics you feel are important, you should remember to select all of the Audit Criteria (or Event/Metric pairs) you wish to analyse by clicking on the “Use in audit?” checkboxes.  
 

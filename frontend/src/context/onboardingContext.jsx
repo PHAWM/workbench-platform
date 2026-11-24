@@ -129,8 +129,8 @@ const ONBOARDING_STEPS = {
     },
     {
       target: '[data-onboarding="sidebar"]',
-      content: 'Use this sidebar to navigate between different metrics. Click "Overview" to see all metrics, or select a specific metric to analyse it in detail.',
-      title: 'Metrics Overview',
+      content: 'Use this sidebar to navigate between different audit criteria. Click "Overview" to see all audit criteria, or select a specific metric to analyse it in detail.',
+      title: 'Audit Criteria Overview',
       placement: 'right',
       disableBeacon: true
     },
@@ -143,7 +143,7 @@ const ONBOARDING_STEPS = {
     },
     {
       target: '[data-onboarding="navigation-buttons"]',
-      content: 'After analysing all metrics and making recommendations, click "Next to Audit Recommendation" to provide your overall audit outcome recommendation.',
+      content: 'After analysing all audit criteria and making recommendations, click "Next to Audit Recommendation" to provide your overall audit outcome recommendation.',
       title: 'Complete Your Analysis',
       placement: 'top',
       disableBeacon: true

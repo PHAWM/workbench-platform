@@ -183,17 +183,16 @@ def create_qualitative_metric_comprehensive(
             )
             session.commit()
 
-        # Add to created values for each event mapping
-        for mapping_data in metric.event_mappings:
-            created_values.append(MetricValuesDetail(
-                id=metric_value.id,
-                event_id=mapping_data.event_id,
-                output=metric_value.output,
-                threshold=str(metric_value.threshold),
-                underlying_features=underlying_features if value_data.underlying_features is not None else None,
-                target_features=value_data.target_features if value_data.target_features is not None else [],
-                scale_points=value_data.scale_points if value_data.scale_points is not None else {},
-            ))
+        # Add to created values — once per metric value, event_id filled in if mapped
+        created_values.append(MetricValuesDetail(
+            id=metric_value.id,
+            event_id=metric.event_mappings[0].event_id if metric.event_mappings else None,
+            output=metric_value.output,
+            threshold=str(metric_value.threshold),
+            underlying_features=underlying_features if value_data.underlying_features is not None else None,
+            target_features=value_data.target_features if value_data.target_features is not None else [],
+            scale_points=value_data.scale_points if value_data.scale_points is not None else {},
+        ))
 
     # Create event mappings
     created_mappings = []
@@ -365,18 +364,18 @@ def create_quantitative_metric_comprehensive(
         session.commit()
         session.refresh(metric_value)
 
+        underlying_features = []
+        target_features = []
+
         # Create features with proper feature_ids - includes both underlying and target
-        if value_data.underlying_features or value_data.target_features:
+        if value_data.underlying_features:
             create_metric_value_details(
                 session,
                 metric_value.id,
                 underlying_features=value_data.underlying_features,
             )
             session.commit()
-
-            underlying_features = []
-            for feature in value_data.underlying_features:
-                underlying_features.append(feature.model_dump())
+            underlying_features = [f.model_dump() for f in value_data.underlying_features]
 
         # Create target features if provided
         if value_data.target_features:
@@ -386,22 +385,18 @@ def create_quantitative_metric_comprehensive(
                 target_features=value_data.target_features,
             )
             session.commit()
+            target_features = [f.model_dump() for f in value_data.target_features]
 
-            target_features = []
-            for feature in value_data.target_features:
-                target_features.append(feature.model_dump())
-
-        # Add to created values for each event mapping
-        for mapping_data in metric.event_mappings:
-            created_values.append(MetricValuesDetail(
-                id=metric_value.id,
-                event_id=mapping_data.event_id,
-                output=metric_value.output,
-                threshold=str(metric_value.threshold),
-                underlying_features=underlying_features,
-                target_features=target_features,
-                scale_points=value_data.scale_points if value_data.scale_points is not None else {},
-            ))
+        # Add to created values — once per metric value, event_id filled in later if mapped
+        created_values.append(MetricValuesDetail(
+            id=metric_value.id,
+            event_id=metric.event_mappings[0].event_id if metric.event_mappings else None,
+            output=metric_value.output,
+            threshold=str(metric_value.threshold),
+            underlying_features=underlying_features,
+            target_features=target_features,
+            scale_points=value_data.scale_points if value_data.scale_points is not None else {},
+        ))
 
     # Create event mappings
     created_mappings = []

@@ -5,7 +5,7 @@ from sqlmodel import Session, select, and_
 import traceback
 
 from src.models import *
-from .utils import convert_numpy_to_json_serializable
+from .utils import convert_numpy_to_json_serializable, should_skip_performance_pipeline
 from src.services.performance_service.run_functions import run_output_evaluation, run_output_classification
 
 
@@ -398,7 +398,8 @@ async def generate_output_evaluation_results_comprehensive(
 async def classify_output_comprehensive(
     audit_id: int,
     current_user_id: str,
-    session: Session
+    session: Session,
+    tenant_id: str | None = None
 ) -> 'OutputClassificationResponse':
     """
     Generate output classification for an audit using run_output_classification.
@@ -441,6 +442,10 @@ async def classify_output_comprehensive(
                 status_code=404,
                 detail="User not associated with this audit"
             )
+
+        skip, reason = should_skip_performance_pipeline(audit_id, session)
+        if skip:
+            return {"skipped": True, "reason": reason, "classifications": []}
 
         # Get the audit instigator's user_audit_id
         audit_instigator = session.exec(
@@ -565,7 +570,8 @@ async def classify_output_comprehensive(
             input_dataset_metadata=user_output_eval,
             user_id=current_user_id,
             storage_base_path="storage",
-            api_key=api_key
+            api_key=api_key,
+            tenant_id=tenant_id
         )
         print(f"[classify_output] Classification completed")
         print(f"   classification_result type: {type(classification_result)}")

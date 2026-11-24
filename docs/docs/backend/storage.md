@@ -90,7 +90,7 @@ The following file extensions are supported:
 
 #### Upload Single Dataset
 
-**Endpoint**: `POST /api/v1/upload/dataset/{audit_id}/single`
+**Endpoint**: `POST /upload/dataset/{audit_id}/single`
 
 Upload a single dataset file for output evaluation.
 
@@ -102,7 +102,7 @@ Upload a single dataset file for output evaluation.
 
 **Request Example**:
 ```bash
-curl -X POST "http://localhost:8000/api/v1/upload/dataset/1/single" \
+curl -X POST "http://localhost:8000/upload/dataset/1/single" \
      -H "Authorization: Bearer {token}" \
      -H "Content-Type: multipart/form-data" \
      -F "file=@dataset.csv"
@@ -130,7 +130,7 @@ curl -X POST "http://localhost:8000/api/v1/upload/dataset/1/single" \
 
 #### Upload Multiple Datasets
 
-**Endpoint**: `POST /api/v1/upload/dataset/{audit_id}/multiple`
+**Endpoint**: `POST /upload/dataset/{audit_id}/multiple`
 
 Upload multiple dataset files simultaneously. If `metadata.csv` is included, it will automatically create underlying features from the headers.
 
@@ -145,7 +145,7 @@ Upload multiple dataset files simultaneously. If `metadata.csv` is included, it 
 
 **Request Example**:
 ```bash
-curl -X POST "http://localhost:8000/api/v1/upload/dataset/1/multiple" \
+curl -X POST "http://localhost:8000/upload/dataset/1/multiple" \
      -H "Authorization: Bearer {token}" \
      -H "Content-Type: multipart/form-data" \
      -F "files=@metadata.csv" \
@@ -183,7 +183,7 @@ curl -X POST "http://localhost:8000/api/v1/upload/dataset/1/multiple" \
 
 #### List Uploaded Datasets
 
-**Endpoint**: `GET /api/v1/upload/dataset/{audit_id}`
+**Endpoint**: `GET /upload/dataset/{audit_id}`
 
 Retrieve a list of all datasets uploaded by the current user for a specific audit.
 
@@ -192,7 +192,7 @@ Retrieve a list of all datasets uploaded by the current user for a specific audi
 
 **Request Example**:
 ```bash
-curl -X GET "http://localhost:8000/api/v1/upload/dataset/1" \
+curl -X GET "http://localhost:8000/upload/dataset/1" \
      -H "Authorization: Bearer {token}"
 ```
 
@@ -218,7 +218,7 @@ curl -X GET "http://localhost:8000/api/v1/upload/dataset/1" \
 
 #### Delete Dataset File
 
-**Endpoint**: `DELETE /api/v1/upload/dataset/{audit_id}`
+**Endpoint**: `DELETE /upload/dataset/{audit_id}`
 
 Delete an uploaded dataset file for a specific audit and user.
 
@@ -234,7 +234,7 @@ Delete an uploaded dataset file for a specific audit and user.
 
 **Request Example**:
 ```bash
-curl -X DELETE "http://localhost:8000/api/v1/upload/dataset/1" \
+curl -X DELETE "http://localhost:8000/upload/dataset/1" \
      -H "Authorization: Bearer {token}" \
      -H "Content-Type: application/json" \
      -d '{"filename": "dataset_a1b2c3d4.csv"}'
@@ -259,7 +259,7 @@ curl -X DELETE "http://localhost:8000/api/v1/upload/dataset/1" \
 
 #### Upload Audit Input Data
 
-**Endpoint**: `POST /api/v1/upload/audit/{audit_id}/input`
+**Endpoint**: `POST /upload/audit/{audit_id}/input`
 
 Upload input data for an audit (used by audit instigators).
 
@@ -271,7 +271,7 @@ Upload input data for an audit (used by audit instigators).
 
 **Request Example**:
 ```bash
-curl -X POST "http://localhost:8000/api/v1/upload/audit/1/input" \
+curl -X POST "http://localhost:8000/upload/audit/1/input" \
      -H "Authorization: Bearer {token}" \
      -H "Content-Type: multipart/form-data" \
      -F "file=@requirements.pdf"
@@ -294,7 +294,7 @@ curl -X POST "http://localhost:8000/api/v1/upload/audit/1/input" \
 
 #### List Audit Files
 
-**Endpoint**: `GET /api/v1/upload/audit/{audit_id}/files`
+**Endpoint**: `GET /upload/audit/{audit_id}/files`
 
 List all files for a specific audit (input files and results.csv if it exists).
 
@@ -303,7 +303,7 @@ List all files for a specific audit (input files and results.csv if it exists).
 
 **Request Example**:
 ```bash
-curl -X GET "http://localhost:8000/api/v1/upload/audit/1/files" \
+curl -X GET "http://localhost:8000/upload/audit/1/files" \
      -H "Authorization: Bearer {token}"
 ```
 
@@ -334,7 +334,7 @@ curl -X GET "http://localhost:8000/api/v1/upload/audit/1/files" \
 
 #### View/Download Audit File
 
-**Endpoint**: `GET /api/v1/upload/audit/{audit_id}/view/{filename}`
+**Endpoint**: `GET /upload/audit/{audit_id}/view/{filename}`
 
 View or download audit input files or results.csv.
 
@@ -349,12 +349,12 @@ View or download audit input files or results.csv.
 **Request Example**:
 ```bash
 # View results.csv
-curl -X GET "http://localhost:8000/api/v1/upload/audit/1/view/results.csv" \
+curl -X GET "http://localhost:8000/upload/audit/1/view/results.csv" \
      -H "Authorization: Bearer {token}" \
      --output results.csv
 
 # View input file
-curl -X GET "http://localhost:8000/api/v1/upload/audit/1/view/metadata.csv" \
+curl -X GET "http://localhost:8000/upload/audit/1/view/metadata.csv" \
      -H "Authorization: Bearer {token}" \
      --output metadata.csv
 ```
@@ -396,7 +396,7 @@ def upload_dataset(audit_id: int, file_path: str, token: str):
         files = {'file': f}
         headers = {'Authorization': f'Bearer {token}'}
         response = requests.post(
-            f'http://localhost:8000/api/v1/upload/dataset/{audit_id}/single',
+            f'http://localhost:8000/upload/dataset/{audit_id}/single',
             files=files,
             headers=headers
         )
@@ -406,7 +406,7 @@ def upload_dataset(audit_id: int, file_path: str, token: str):
 def list_datasets(audit_id: int, token: str):
     headers = {'Authorization': f'Bearer {token}'}
     response = requests.get(
-        f'http://localhost:8000/api/v1/upload/dataset/{audit_id}',
+        f'http://localhost:8000/upload/dataset/{audit_id}',
         headers=headers
     )
     return response.json()
@@ -415,7 +415,7 @@ def list_datasets(audit_id: int, token: str):
 def download_file(audit_id: int, filename: str, token: str):
     headers = {'Authorization': f'Bearer {token}'}
     response = requests.get(
-        f'http://localhost:8000/api/v1/upload/dataset/{audit_id}/view/{filename}',
+        f'http://localhost:8000/upload/dataset/{audit_id}/view/{filename}',
         headers=headers
     )
     with open(filename, 'wb') as f:
@@ -430,7 +430,7 @@ async function uploadDataset(auditId, file, token) {
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await fetch(`/api/v1/upload/dataset/${auditId}/single`, {
+    const response = await fetch(`/upload/dataset/${auditId}/single`, {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${token}`
@@ -443,7 +443,7 @@ async function uploadDataset(auditId, file, token) {
 
 // List files
 async function listDatasets(auditId, token) {
-    const response = await fetch(`/api/v1/upload/dataset/${auditId}`, {
+    const response = await fetch(`/upload/dataset/${auditId}`, {
         headers: {
             'Authorization': `Bearer ${token}`
         }
@@ -455,7 +455,7 @@ async function listDatasets(auditId, token) {
 // Download file
 async function downloadFile(auditId, filename, token) {
     const response = await fetch(
-        `/api/v1/upload/dataset/${auditId}/view/${filename}`,
+        `/upload/dataset/${auditId}/view/${filename}`,
         {
             headers: {
                 'Authorization': `Bearer ${token}`
@@ -491,7 +491,7 @@ function FileUploadManager({ auditId, token }) {
 
     try {
       const response = await fetch(
-        `http://localhost:8000/api/v1/upload/dataset/${auditId}/single`,
+        `http://localhost:8000/upload/dataset/${auditId}/single`,
         {
           method: 'POST',
           headers: {
@@ -513,7 +513,7 @@ function FileUploadManager({ auditId, token }) {
 
   const loadFiles = async () => {
     const response = await fetch(
-      `http://localhost:8000/api/v1/upload/dataset/${auditId}`,
+      `http://localhost:8000/upload/dataset/${auditId}`,
       {
         headers: {
           'Authorization': `Bearer ${token}`
@@ -526,7 +526,7 @@ function FileUploadManager({ auditId, token }) {
 
   const downloadFile = async (filename) => {
     const response = await fetch(
-      `http://localhost:8000/api/v1/upload/dataset/${auditId}/view/${filename}`,
+      `http://localhost:8000/upload/dataset/${auditId}/view/${filename}`,
       {
         headers: {
           'Authorization': `Bearer ${token}`
